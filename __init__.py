@@ -520,30 +520,43 @@ class OnboardingWidget(QWidget):
             import webbrowser
             webbrowser.open("https://github.com/Lukeyp43/Anki-OpenEvidence-Add-On")
 
+            # Disable button to prevent multiple clicks, but keep it looking active
+            self.star_btn.setEnabled(False)
+            
+            # Wait 4 seconds before showing success state
+            QTimer.singleShot(4000, self.finalize_onboarding_step)
+
+    def finalize_onboarding_step(self):
+        if not self.step_completed:
             self.step_completed = True
 
-            # Update Star Button to checked state
+            # Update Star Button to checked state (Dark Gray background, Checkbox turns blue with checkmark)
+            # Re-enable button but cursor changes
+            self.star_btn.setEnabled(True)
+            self.star_btn.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+            # Remove hover effect by setting same background
             self.star_btn.setStyleSheet("""
                 QPushButton {
-                    background: #3498db;
-                    border: 1px solid #3498db;
+                    background: #2b2b2b;
+                    border: 1px solid #444444;
                     border-radius: 8px;
+                    text-align: left;
                 }
             """)
-            self.star_btn.setEnabled(False)
-            self.star_btn.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
             
             # Update icons/text for checked state
-            # Checkbox becomes checkmark
-            check_svg = """<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>"""
-            self.set_icon_from_svg(self.checkbox_label, check_svg)
             
-            # Arrow becomes checkmark too
-            self.set_icon_from_svg(self.arrow_label, check_svg)
+            # 1. Checkbox becomes filled blue square with checkmark
+            filled_check_svg = """<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="2" y="2" width="20" height="20" rx="5" fill="#3498db"/>
+                <polyline points="16 9 10 15 7 12" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>"""
+            self.set_icon_from_svg(self.checkbox_label, filled_check_svg)
+            
+            # 2. Arrow stays as arrow (no change needed, but we ensure it's correct)
+            # (It's already an arrow from setup_ui)
 
-            # Update Continue Button to UNLOCKED state
+            # Update Continue Button to UNLOCKED state (Bright Blue)
             self.continue_btn.setEnabled(True)
             self.continue_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
             self.continue_btn.setStyleSheet("""
