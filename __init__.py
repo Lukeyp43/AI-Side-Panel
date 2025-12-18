@@ -1,3 +1,17 @@
+"""
+Copyright (c) 2024 Luke Pettit
+
+All rights reserved.
+
+The computer program(s) and/or related information content contained in this
+distribution are the proprietary intellectual property of Luke Pettit.
+
+Redistribution and use in source and binary forms, with or without modification,
+are NOT permitted without specific prior written permission from the author.
+
+This software is provided "as is," without warranty of any kind.
+"""
+
 import os
 import re
 import aqt
@@ -489,10 +503,10 @@ class OnboardingWidget(QWidget):
         
         self.star_btn.clicked.connect(self.on_star_clicked)
         layout.addWidget(self.star_btn)
-        
+
         # Gap before Next button (16px)
         layout.addSpacing(16)
-        
+
         # BIG NEXT BUTTON - Grayed out "locked" state
         self.continue_btn = QPushButton("Next →")
         self.continue_btn.setCursor(QCursor(Qt.CursorShape.ForbiddenCursor))
