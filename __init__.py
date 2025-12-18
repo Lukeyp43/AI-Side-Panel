@@ -1,17 +1,3 @@
-"""
-Copyright (c) 2024 Luke Pettit
-
-All rights reserved.
-
-The computer program(s) and/or related information content contained in this
-distribution are the proprietary intellectual property of Luke Pettit.
-
-Redistribution and use in source and binary forms, with or without modification,
-are NOT permitted without specific prior written permission from the author.
-
-This software is provided "as is," without warranty of any kind.
-"""
-
 import os
 import re
 import aqt
