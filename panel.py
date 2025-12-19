@@ -268,7 +268,7 @@ class OpenEvidencePanel(QWidget):
         self.stacked_widget = QStackedWidget()
         layout.addWidget(self.stacked_widget)
 
-        # Create web view
+        # Create web view container with loading overlay
         self.web_container = QWidget()
         web_layout = QVBoxLayout(self.web_container)
         web_layout.setContentsMargins(0, 0, 0, 0)
@@ -282,10 +282,94 @@ class OpenEvidencePanel(QWidget):
             except:
                 pass
 
+        # Hide the web view initially until it's fully loaded
+        self.web.hide()
+        self.web.setStyleSheet("QWebEngineView { background: #1e1e1e; }")
+        
         web_layout.addWidget(self.web)
 
-        # Inject listener after page loads
-        self.web.loadFinished.connect(self.inject_shift_key_listener)
+        # Create loading overlay with CSS animation using QWebEngineView
+        self.loading_overlay = QWebEngineView(self.web_container)
+        
+        # HTML content with CSS loader animation
+        loading_html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #1e1e1e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+        }
+        .loader {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: block;
+            margin: 15px auto;
+            position: relative;
+            color: #FFF;
+            left: -100px;
+            box-sizing: border-box;
+            animation: shadowRolling 2s linear infinite;
+        }
+        @keyframes shadowRolling {
+            0% {
+                box-shadow: 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0);
+            }
+            12% {
+                box-shadow: 100px 0 white, 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0);
+            }
+            25% {
+                box-shadow: 110px 0 white, 100px 0 white, 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0);
+            }
+            36% {
+                box-shadow: 120px 0 white, 110px 0 white, 100px 0 white, 0px 0 rgba(255, 255, 255, 0);
+            }
+            50% {
+                box-shadow: 130px 0 white, 120px 0 white, 110px 0 white, 100px 0 white;
+            }
+            62% {
+                box-shadow: 200px 0 rgba(255, 255, 255, 0), 130px 0 white, 120px 0 white, 110px 0 white;
+            }
+            75% {
+                box-shadow: 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 130px 0 white, 120px 0 white;
+            }
+            87% {
+                box-shadow: 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 130px 0 white;
+            }
+            100% {
+                box-shadow: 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0);
+            }
+        }
+        </style>
+        </head>
+        <body>
+            <span class="loader"></span>
+        </body>
+        </html>
+        """
+        
+        self.loading_overlay.setHtml(loading_html)
+        self.loading_overlay.setStyleSheet("background: #1e1e1e;")
+        
+        # Add overlay to layout (it will cover the entire container)
+        web_layout.addWidget(self.loading_overlay)
+        self.loading_overlay.raise_()
+        self.loading_overlay.show()
+
+        # Connect to load finished to check if page is ready
+        self.web.loadFinished.connect(self.on_page_load_finished)
         self.web.load(QUrl("https://www.openevidence.com/"))
 
         # Create settings view
@@ -297,6 +381,59 @@ class OpenEvidencePanel(QWidget):
 
         # Start with web view
         self.stacked_widget.setCurrentIndex(0)
+
+    def on_page_load_finished(self, ok):
+        """Called when page HTML is loaded - check if fully ready"""
+        if not ok:
+            # Load failed, hide overlay anyway
+            if hasattr(self, 'loading_overlay'):
+                self.loading_overlay.hide()
+            return
+        
+        # Check if page is truly ready (all resources loaded)
+        check_ready_js = """
+        (function() {
+            // Check if document is fully loaded and OpenEvidence elements exist
+            if (document.readyState === 'complete') {
+                // Check for OpenEvidence specific elements that indicate page is ready
+                var searchInput = document.querySelector('input[placeholder*="medical"], input[placeholder*="question"], textarea');
+                var logo = document.querySelector('img, svg');
+                
+                // If we found key elements, page is ready
+                if (searchInput || logo) {
+                    return true;
+                }
+            }
+            return false;
+        })();
+        """
+        
+        # Check if page is ready
+        self.web.page().runJavaScript(check_ready_js, self.handle_ready_check)
+    
+    def handle_ready_check(self, is_ready):
+        """Handle the result of page ready check"""
+        if is_ready:
+            # Page is ready, show web view and hide overlay
+            self.web.show()
+            if hasattr(self, 'loading_overlay'):
+                self.loading_overlay.hide()
+            self.inject_shift_key_listener()
+        else:
+            # Not ready yet, check again after a short delay
+            QTimer.singleShot(200, lambda: self.web.page().runJavaScript(
+                """
+                (function() {
+                    if (document.readyState === 'complete') {
+                        var searchInput = document.querySelector('input[placeholder*="medical"], input[placeholder*="question"], textarea');
+                        var logo = document.querySelector('img, svg');
+                        if (searchInput || logo) return true;
+                    }
+                    return false;
+                })();
+                """,
+                self.handle_ready_check
+            ))
 
     def _update_title_bar(self, is_settings):
         """Update title bar state"""
