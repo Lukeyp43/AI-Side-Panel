@@ -13,7 +13,7 @@ is_showing_answer = False
 
 
 def create_dock_widget():
-    """Create the dock widget for OpenEvidence panel"""
+    """Create the dock widget for OpenEvidence panel and preload content"""
     global dock_widget
 
     if dock_widget is None:
@@ -28,6 +28,7 @@ def create_dock_widget():
         # Create the appropriate widget
         if onboarding_complete:
             panel = OpenEvidencePanel()
+            # The panel will automatically start loading OpenEvidence in the background
         else:
             panel = OnboardingWidget()
 
@@ -47,7 +48,7 @@ def create_dock_widget():
         # Add the dock widget to the right side of the main window
         mw.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock_widget)
 
-        # Hide by default
+        # Hide by default - but the web content is already loading in the background!
         dock_widget.hide()
 
         # Store reference to prevent garbage collection
@@ -130,9 +131,18 @@ def add_toolbar_button(links, toolbar):
     )
 
 
+def preload_panel():
+    """Preload panel after a short delay to avoid competing with Anki startup"""
+    # Wait 500ms after Anki finishes initializing to start preloading
+    # This ensures Anki's UI is responsive while OpenEvidence loads in background
+    from aqt.qt import QTimer
+    QTimer.singleShot(500, create_dock_widget)
+
+
 # Hook registration
 gui_hooks.webview_did_receive_js_message.append(on_webview_did_receive_js_message)
 gui_hooks.top_toolbar_did_init_links.append(add_toolbar_button)
-gui_hooks.main_window_did_init.append(create_dock_widget)
+# Use delayed preloading for better performance
+gui_hooks.main_window_did_init.append(preload_panel)
 gui_hooks.reviewer_did_show_question.append(store_current_card_text)
 gui_hooks.reviewer_did_show_answer.append(store_current_card_text)

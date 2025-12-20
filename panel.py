@@ -273,103 +273,109 @@ class OpenEvidencePanel(QWidget):
         web_layout = QVBoxLayout(self.web_container)
         web_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.web = QWebEngineView(self.web_container)
-
-        # Prevent the webview from stealing focus on navigation
-        if QWebEngineSettings:
-            try:
-                self.web.settings().setAttribute(QWebEngineSettings.WebAttribute.FocusOnNavigationEnabled, False)
-            except:
-                pass
-
-        # Hide the web view initially until it's fully loaded
-        self.web.hide()
-        self.web.setStyleSheet("QWebEngineView { background: #1e1e1e; }")
-        
-        web_layout.addWidget(self.web)
-
-        # Create loading overlay with CSS animation using QWebEngineView
+        # Create loading overlay first (so it's on top in z-order)
         self.loading_overlay = QWebEngineView(self.web_container)
+        self.loading_overlay.setStyleSheet("QWebEngineView { background: #1e1e1e; }")
         
-        # HTML content with CSS loader animation
+        # Loading HTML with rolling dots animation
         loading_html = """
         <!DOCTYPE html>
         <html>
         <head>
-        <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            background: #1e1e1e;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            width: 100vw;
-            overflow: hidden;
-        }
-        .loader {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            display: block;
-            margin: 15px auto;
-            position: relative;
-            color: #FFF;
-            left: -100px;
-            box-sizing: border-box;
-            animation: shadowRolling 2s linear infinite;
-        }
-        @keyframes shadowRolling {
-            0% {
-                box-shadow: 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0);
-            }
-            12% {
-                box-shadow: 100px 0 white, 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0);
-            }
-            25% {
-                box-shadow: 110px 0 white, 100px 0 white, 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0);
-            }
-            36% {
-                box-shadow: 120px 0 white, 110px 0 white, 100px 0 white, 0px 0 rgba(255, 255, 255, 0);
-            }
-            50% {
-                box-shadow: 130px 0 white, 120px 0 white, 110px 0 white, 100px 0 white;
-            }
-            62% {
-                box-shadow: 200px 0 rgba(255, 255, 255, 0), 130px 0 white, 120px 0 white, 110px 0 white;
-            }
-            75% {
-                box-shadow: 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 130px 0 white, 120px 0 white;
-            }
-            87% {
-                box-shadow: 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 130px 0 white;
-            }
-            100% {
-                box-shadow: 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0);
-            }
-        }
-        </style>
+            <style>
+                body {
+                    margin: 0;
+                    padding: 0;
+                    background: #1e1e1e;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    overflow: hidden;
+                }
+                .loader {
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 50%;
+                    display: block;
+                    position: relative;
+                    color: #FFF;
+                    left: -100px;
+                    box-sizing: border-box;
+                    animation: shadowRolling 2s linear infinite;
+                }
+                @keyframes shadowRolling {
+                    0% {
+                        box-shadow: 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0);
+                    }
+                    12% {
+                        box-shadow: 100px 0 white, 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0);
+                    }
+                    25% {
+                        box-shadow: 110px 0 white, 100px 0 white, 0px 0 rgba(255, 255, 255, 0), 0px 0 rgba(255, 255, 255, 0);
+                    }
+                    36% {
+                        box-shadow: 120px 0 white, 110px 0 white, 100px 0 white, 0px 0 rgba(255, 255, 255, 0);
+                    }
+                    50% {
+                        box-shadow: 130px 0 white, 120px 0 white, 110px 0 white, 100px 0 white;
+                    }
+                    62% {
+                        box-shadow: 200px 0 rgba(255, 255, 255, 0), 130px 0 white, 120px 0 white, 110px 0 white;
+                    }
+                    75% {
+                        box-shadow: 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 130px 0 white, 120px 0 white;
+                    }
+                    87% {
+                        box-shadow: 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 130px 0 white;
+                    }
+                    100% {
+                        box-shadow: 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0), 200px 0 rgba(255, 255, 255, 0);
+                    }
+                }
+            </style>
         </head>
         <body>
             <span class="loader"></span>
         </body>
         </html>
         """
-        
         self.loading_overlay.setHtml(loading_html)
-        self.loading_overlay.setStyleSheet("background: #1e1e1e;")
         
-        # Add overlay to layout (it will cover the entire container)
+        # Create web view for OpenEvidence
+        self.web = QWebEngineView(self.web_container)
+
+        # Configure settings for faster loading and better preloading
+        if QWebEngineSettings:
+            try:
+                # Prevent stealing focus
+                self.web.settings().setAttribute(QWebEngineSettings.WebAttribute.FocusOnNavigationEnabled, False)
+                # Enable features that speed up loading
+                self.web.settings().setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
+                self.web.settings().setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+            except:
+                pass
+
+        self.web.setStyleSheet("QWebEngineView { background: #1e1e1e; }")
+        
+        # Set explicit size to ensure Qt allocates resources and starts loading immediately
+        self.web.setMinimumSize(300, 400)
+        
+        # Add both to layout - stacked on top of each other
+        web_layout.addWidget(self.web)
         web_layout.addWidget(self.loading_overlay)
-        self.loading_overlay.raise_()
+        
+        # Initially show only the loader
+        self.web.hide()
         self.loading_overlay.show()
+        self.loading_overlay.raise_()
 
         # Connect to load finished to check if page is ready
         self.web.loadFinished.connect(self.on_page_load_finished)
+        
+        # Start loading OpenEvidence immediately (even though panel is hidden)
+        # This enables preloading: the page loads in the background while Anki starts,
+        # so it's ready instantly when the user clicks the book icon
         self.web.load(QUrl("https://www.openevidence.com/"))
 
         # Create settings view
@@ -414,10 +420,10 @@ class OpenEvidencePanel(QWidget):
     def handle_ready_check(self, is_ready):
         """Handle the result of page ready check"""
         if is_ready:
-            # Page is ready, show web view and hide overlay
-            self.web.show()
+            # Page is ready - hide loader, show web view
             if hasattr(self, 'loading_overlay'):
                 self.loading_overlay.hide()
+            self.web.show()
             self.inject_shift_key_listener()
         else:
             # Not ready yet, check again after a short delay
