@@ -40,6 +40,10 @@ def format_keys_display(keys):
     for key in keys:
         if key == "Control/Meta":
             keycaps.append("⌘" if sys.platform == "darwin" else "Ctrl")
+        elif key == "Meta":
+            keycaps.append("⌘")  # Cmd key on macOS
+        elif key == "Control":
+            keycaps.append("⌃" if sys.platform == "darwin" else "Ctrl")  # Control key
         elif key == "Shift":
             keycaps.append("⇧")
         elif key == "Alt":
@@ -57,6 +61,10 @@ def format_keys_verbose(keys):
     for key in keys:
         if key == "Control/Meta":
             display_keys.append("⌘ Cmd" if sys.platform == "darwin" else "Ctrl")
+        elif key == "Meta":
+            display_keys.append("⌘ Cmd")  # Cmd key on macOS
+        elif key == "Control":
+            display_keys.append("⌃ Control" if sys.platform == "darwin" else "Ctrl")  # Control key
         elif key == "Shift":
             display_keys.append("⇧ Shift")
         elif key == "Alt":

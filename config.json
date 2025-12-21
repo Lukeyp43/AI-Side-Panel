@@ -4,17 +4,24 @@
     "onboarding_completed": false,
     "keybindings": [
         {
-            "name": "Daily Driver",
-            "keys": ["Control/Meta", "Shift"],
-            "question_template": "{front}",
-            "answer_template": "Question:\n{front}\nAnswer:\n{back}"
+            "name": "Standard Explain",
+            "keys": ["Control", "Shift", "S"],
+            "question_template": "Can you explain this to me:\n\n{front}",
+            "answer_template": "Can you explain this to me:\n\nQuestion:\n{front}\n\nAnswer:\n{back}"
         },
         {
-            "name": "Deep Dive",
-            "keys": ["Alt", "Shift"],
-            "question_template": "Can you explain this to me:\nQuestion:\n{front}",
-            "answer_template": "Can you explain this to me:\nQuestion:\n{front}\n\nAnswer:\n{back}"
+            "name": "Front/Back",
+            "keys": ["Control", "Shift", "Q"],
+            "question_template": "{front}",
+            "answer_template": "{front}"
+        },
+        {
+            "name": "Back Only",
+            "keys": ["Control", "Shift", "A"],
+            "question_template": "",
+            "answer_template": "{back}"
         }
     ]
 }
+
 

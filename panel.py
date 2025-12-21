@@ -549,7 +549,19 @@ class OpenEvidencePanel(QWidget):
                 var pressedKeys = {};
 
                 if (event.shiftKey) pressedKeys['Shift'] = true;
-                if (event.ctrlKey || event.metaKey) pressedKeys['Control/Meta'] = true;
+                
+                // On macOS, browser events have the keys correct:
+                // - event.metaKey = Cmd key (⌘) → should match "Meta"
+                // - event.ctrlKey = Control key (⌃) → should match "Control"
+                // On other platforms, treat them the same for cross-platform compatibility
+                var isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+                if (isMac) {
+                    if (event.ctrlKey) pressedKeys['Control'] = true;
+                    if (event.metaKey) pressedKeys['Meta'] = true;
+                } else {
+                    if (event.ctrlKey || event.metaKey) pressedKeys['Control/Meta'] = true;
+                }
+                
                 if (event.altKey) pressedKeys['Alt'] = true;
 
                 // Add regular key if present
@@ -694,16 +706,22 @@ class OpenEvidencePanel(QWidget):
         if not keybindings:
             keybindings = [
                 {
-                    "name": "Daily Driver",
-                    "keys": ["Shift", "Control/Meta"],
-                    "question_template": "{front}",
-                    "answer_template": "Question:\n{front}\nAnswer:\n{back}"
+                    "name": "Standard Explain",
+                    "keys": ["Control", "Shift", "S"],
+                    "question_template": "Can you explain this to me:\n\n{front}",
+                    "answer_template": "Can you explain this to me:\n\nQuestion:\n{front}\n\nAnswer:\n{back}"
                 },
                 {
-                    "name": "Deep Dive",
-                    "keys": ["Shift", "Alt"],
-                    "question_template": "Can you explain this to me:\nQuestion:\n{front}",
-                    "answer_template": "Can you explain this to me:\nQuestion:\n{front}\n\nAnswer:\n{back}"
+                    "name": "Front/Back",
+                    "keys": ["Control", "Shift", "Q"],
+                    "question_template": "{front}",
+                    "answer_template": "{front}"
+                },
+                {
+                    "name": "Back Only",
+                    "keys": ["Control", "Shift", "A"],
+                    "question_template": "",
+                    "answer_template": "{back}"
                 }
             ]
 
@@ -725,16 +743,22 @@ class OpenEvidencePanel(QWidget):
         if not keybindings:
             keybindings = [
                 {
-                    "name": "Daily Driver",
-                    "keys": ["Shift", "Control/Meta"],
-                    "question_template": "{front}",
-                    "answer_template": "Question:\n{front}\nAnswer:\n{back}"
+                    "name": "Standard Explain",
+                    "keys": ["Control", "Shift", "S"],
+                    "question_template": "Can you explain this to me:\n\n{front}",
+                    "answer_template": "Can you explain this to me:\n\nQuestion:\n{front}\n\nAnswer:\n{back}"
                 },
                 {
-                    "name": "Deep Dive",
-                    "keys": ["Shift", "Alt"],
-                    "question_template": "Can you explain this to me:\nQuestion:\n{front}",
-                    "answer_template": "Can you explain this to me:\nQuestion:\n{front}\n\nAnswer:\n{back}"
+                    "name": "Front/Back",
+                    "keys": ["Control", "Shift", "Q"],
+                    "question_template": "{front}",
+                    "answer_template": "{front}"
+                },
+                {
+                    "name": "Back Only",
+                    "keys": ["Control", "Shift", "A"],
+                    "question_template": "",
+                    "answer_template": "{back}"
                 }
             ]
 

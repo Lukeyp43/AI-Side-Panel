@@ -407,13 +407,27 @@ class SettingsEditorView(QWidget):
     def keyPressEvent(self, event):
         """Capture key presses when recording (max 3 keys)"""
         if self.recording_keys:
+            import sys
             key = event.key()
-            key_map = {
-                Qt.Key.Key_Control if hasattr(Qt.Key, 'Key_Control') else Qt.Key_Control: "Control/Meta",
-                Qt.Key.Key_Meta if hasattr(Qt.Key, 'Key_Meta') else Qt.Key_Meta: "Control/Meta",
-                Qt.Key.Key_Shift if hasattr(Qt.Key, 'Key_Shift') else Qt.Key_Shift: "Shift",
-                Qt.Key.Key_Alt if hasattr(Qt.Key, 'Key_Alt') else Qt.Key_Alt: "Alt",
-            }
+            
+            # On macOS, Qt has a quirk where Control and Meta are swapped:
+            # - Qt.Key_Control is actually triggered by the Cmd key (⌘)
+            # - Qt.Key_Meta is actually triggered by the Control key (⌃)
+            # So we need to swap them in our mapping to match user expectations
+            if sys.platform == "darwin":
+                key_map = {
+                    Qt.Key.Key_Control if hasattr(Qt.Key, 'Key_Control') else Qt.Key_Control: "Meta",  # Cmd key
+                    Qt.Key.Key_Meta if hasattr(Qt.Key, 'Key_Meta') else Qt.Key_Meta: "Control",  # Control key
+                    Qt.Key.Key_Shift if hasattr(Qt.Key, 'Key_Shift') else Qt.Key_Shift: "Shift",
+                    Qt.Key.Key_Alt if hasattr(Qt.Key, 'Key_Alt') else Qt.Key_Alt: "Alt",
+                }
+            else:
+                key_map = {
+                    Qt.Key.Key_Control if hasattr(Qt.Key, 'Key_Control') else Qt.Key_Control: "Control/Meta",
+                    Qt.Key.Key_Meta if hasattr(Qt.Key, 'Key_Meta') else Qt.Key_Meta: "Control/Meta",
+                    Qt.Key.Key_Shift if hasattr(Qt.Key, 'Key_Shift') else Qt.Key_Shift: "Shift",
+                    Qt.Key.Key_Alt if hasattr(Qt.Key, 'Key_Alt') else Qt.Key_Alt: "Alt",
+                }
 
             # Check if this is a valid key press (not just a modifier being held)
             is_valid_key = key in key_map or (event.text() and event.text().isprintable())
@@ -583,16 +597,22 @@ class SettingsListView(QWidget):
         if not self.keybindings:
             self.keybindings = [
                 {
-                    "name": "Daily Driver",
-                    "keys": ["Control/Meta", "Shift"],
-                    "question_template": "{front}",
-                    "answer_template": "Question:\n{front}\nAnswer:\n{back}"
+                    "name": "Standard Explain",
+                    "keys": ["Control", "Shift", "S"],
+                    "question_template": "Can you explain this to me:\n\n{front}",
+                    "answer_template": "Can you explain this to me:\n\nQuestion:\n{front}\n\nAnswer:\n{back}"
                 },
                 {
-                    "name": "Deep Dive",
-                    "keys": ["Alt", "Shift"],
-                    "question_template": "Can you explain this to me:\nQuestion:\n{front}",
-                    "answer_template": "Can you explain this to me:\nQuestion:\n{front}\n\nAnswer:\n{back}"
+                    "name": "Front/Back",
+                    "keys": ["Control", "Shift", "Q"],
+                    "question_template": "{front}",
+                    "answer_template": "{front}"
+                },
+                {
+                    "name": "Back Only",
+                    "keys": ["Control", "Shift", "A"],
+                    "question_template": "",
+                    "answer_template": "{back}"
                 }
             ]
             config["keybindings"] = self.keybindings
@@ -641,6 +661,10 @@ class SettingsListView(QWidget):
             # Format key display
             if key == "Control/Meta":
                 display = "⌘" if sys.platform == "darwin" else "Ctrl"
+            elif key == "Meta":
+                display = "⌘"  # Cmd key on macOS
+            elif key == "Control":
+                display = "⌃" if sys.platform == "darwin" else "Ctrl"  # Control key
             elif key == "Shift":
                 display = "⇧"
             elif key == "Alt":
