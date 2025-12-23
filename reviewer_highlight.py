@@ -165,7 +165,7 @@ HIGHLIGHT_BUBBLE_JS = """
                 max-width: 380px;
                 position: relative;
             ">
-                <div style="display: flex; align-items: center; gap: 4px; padding: 7px 6px 6px 8px;">
+                <div style="display: flex; align-items: flex-start; gap: 4px; padding: 7px 6px 6px 8px;">
                     <textarea
                         id="question-input"
                         placeholder="Ask a question..."
@@ -228,7 +228,7 @@ HIGHLIGHT_BUBBLE_JS = """
                         height: 19px;
                         flex-shrink: 0;
                         margin: 0;
-                    "><svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 1.5V8.5M5 1.5L2 4.5M5 1.5L8 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                    "><svg width="10" height="11" viewBox="0 0 10 11" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 1.5V9.5M5 1.5L2 4.5M5 1.5L8 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
             </div>
         `;
