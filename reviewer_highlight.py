@@ -453,28 +453,32 @@ HIGHLIGHT_BUBBLE_JS = """
         }
     }
 
-    // Position the bubble above the selection with 8px gap (doesn't overlap text)
+    // Position the bubble above or below the selection
     function positionBubble(rect) {
         const bubbleHeight = bubble.offsetHeight;
         const bubbleWidth = bubble.offsetWidth;
-        const gap = 8; // Gap above selection to prevent covering text
+        const padding = 20; // Vertical padding between selection and bubble
 
-        // Calculate center of selection
-        const centerX = rect.left + (rect.width / 2);
+        // Position horizontally based on the end (right edge) of the selection
+        // Align bubble's right edge near the selection's right edge
+        let left = rect.right - bubbleWidth;
 
-        // Position bubble centered above selection with gap
-        let left = centerX - (bubbleWidth / 2);
-        let top = rect.top - bubbleHeight - gap;
-
-        // Keep bubble within viewport bounds
-        if (left < 0) left = 0;
-        if (left + bubbleWidth > window.innerWidth) {
-            left = window.innerWidth - bubbleWidth;
+        // Keep bubble within viewport horizontal bounds with some margin
+        const margin = 10;
+        if (left < margin) {
+            left = margin;
+        }
+        if (left + bubbleWidth > window.innerWidth - margin) {
+            left = window.innerWidth - bubbleWidth - margin;
         }
 
-        // If bubble would be above viewport, show it below instead
-        if (top < 0) {
-            top = rect.bottom + gap;
+        // Default: Position below the selection
+        let top = rect.bottom + padding;
+
+        // Check: Would it go off the bottom of the screen?
+        if (top + bubbleHeight > window.innerHeight) {
+            // Flip: Position above the selection instead
+            top = rect.top - bubbleHeight - padding;
         }
 
         bubble.style.left = left + window.scrollX + 'px';
@@ -553,13 +557,33 @@ HIGHLIGHT_BUBBLE_JS = """
 
             // Only show bubble if Command/Meta key is held AND text is selected
             if (text && text.length > 0 && cmdKeyHeld) {
-                // Get selection range and position
+                // Get selection range
                 const range = selection.getRangeAt(0);
-                const rect = range.getBoundingClientRect();
 
-                showBubble(rect, text);
+                // For multi-line selections, get the END position specifically
+                const endRange = document.createRange();
+                endRange.setStart(range.endContainer, range.endOffset);
+                endRange.setEnd(range.endContainer, range.endOffset);
+                const endRect = endRange.getBoundingClientRect();
+
+                // Use the full selection rect but with the end position for horizontal alignment
+                const rect = range.getBoundingClientRect();
+                const combinedRect = {
+                    left: rect.left,
+                    right: endRect.right || rect.right,
+                    top: rect.top,
+                    bottom: rect.bottom,
+                    width: rect.width,
+                    height: rect.height
+                };
+
+                showBubble(combinedRect, text);
+            } else {
+                // No text selected - hide bubble if in default state and clicking outside
+                if (currentState === 'default' && !bubble.contains(e.target)) {
+                    hideBubble();
+                }
             }
-            // Removed auto-hide when clicking outside - only X button closes bubble
         }, 10);
     });
 
