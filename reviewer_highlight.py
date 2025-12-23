@@ -20,6 +20,7 @@ HIGHLIGHT_BUBBLE_JS = """
     let currentState = 'default'; // 'default' or 'input'
     let selectedText = '';
     let cmdKeyHeld = false;
+    let contextText = ''; // Store context text for the pill
 
     // Track Command/Meta key state
     document.addEventListener('keydown', (e) => {
@@ -210,7 +211,41 @@ HIGHLIGHT_BUBBLE_JS = """
                     ">✕</button>
                 </div>
 
-                <div style="display: flex; justify-content: flex-end; margin: 0; padding: 0 6px 6px 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin: 0; padding: 0 6px 6px 8px;">
+                    <div id="context-pill" style="
+                        display: flex;
+                        align-items: center;
+                        gap: 4px;
+                        background: rgba(255, 255, 255, 0.05);
+                        border: 1px dashed rgba(255, 255, 255, 0.2);
+                        border-radius: 12px;
+                        padding: 2px 8px;
+                        font-size: 10px;
+                        color: #9ca3af;
+                        cursor: pointer;
+                        transition: all 0.15s ease;
+                        max-width: 150px;
+                        white-space: nowrap;
+                        overflow: hidden;
+                    ">
+                        <span id="context-text" style="
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                        ">Select text +</span>
+                        <button id="context-clear" style="
+                            display: none;
+                            background: transparent;
+                            border: none;
+                            color: #9ca3af;
+                            cursor: pointer;
+                            font-size: 10px;
+                            padding: 0;
+                            width: 12px;
+                            height: 12px;
+                            flex-shrink: 0;
+                            line-height: 1;
+                        ">✕</button>
+                    </div>
                     <button id="submit-btn" style="
                         background: #3b82f6;
                         border: none;
@@ -236,15 +271,45 @@ HIGHLIGHT_BUBBLE_JS = """
         const input = bubble.querySelector('#question-input');
         const submitBtn = bubble.querySelector('#submit-btn');
         const closeBtn = bubble.querySelector('#close-btn');
+        const contextPill = bubble.querySelector('#context-pill');
+        const contextTextSpan = bubble.querySelector('#context-text');
+        const contextClearBtn = bubble.querySelector('#context-clear');
 
         // Auto-resize textarea as user types
         function autoResize() {
             input.style.height = 'auto';
-            input.style.height = Math.min(input.scrollHeight, 80) + 'px';
+            input.style.height = Math.min(input.scrollHeight, 100) + 'px';
+        }
+
+        // Update context pill based on contextText
+        function updateContextPill() {
+            if (contextText) {
+                // State B: Context Active
+                const truncated = contextText.length > 20 ? contextText.substring(0, 20) + '...' : contextText;
+                contextTextSpan.textContent = 'Context: ' + truncated;
+                contextClearBtn.style.display = 'block';
+                contextPill.style.background = 'rgba(59, 130, 246, 0.15)';
+                contextPill.style.border = '1px solid rgba(59, 130, 246, 0.3)';
+            } else {
+                // State A: No Context
+                contextTextSpan.textContent = 'Select text +';
+                contextClearBtn.style.display = 'none';
+                contextPill.style.background = 'rgba(255, 255, 255, 0.05)';
+                contextPill.style.border = '1px dashed rgba(255, 255, 255, 0.2)';
+            }
+        }
+
+        // Clear context
+        function clearContext() {
+            contextText = '';
+            updateContextPill();
         }
 
         // Focus the input
         setTimeout(() => input.focus(), 0);
+
+        // Initialize context pill
+        updateContextPill();
 
         // Auto-resize on input
         input.addEventListener('input', autoResize);
@@ -297,6 +362,51 @@ HIGHLIGHT_BUBBLE_JS = """
         submitBtn.addEventListener('mousedown', (e) => {
             e.stopPropagation();
         });
+
+        // Context pill click handler (State A: show hint)
+        contextPill.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!contextText) {
+                // Show hint
+                const originalText = contextTextSpan.textContent;
+                contextTextSpan.textContent = 'Highlight text on page';
+                setTimeout(() => {
+                    if (!contextText) {
+                        contextTextSpan.textContent = originalText;
+                    }
+                }, 1500);
+            }
+        });
+
+        // Context clear button handler
+        contextClearBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            clearContext();
+        });
+        contextClearBtn.addEventListener('mouseup', (e) => {
+            e.stopPropagation();
+        });
+        contextClearBtn.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+        });
+
+        // Listen for text selection while bubble is open
+        const selectionHandler = () => {
+            const selection = window.getSelection();
+            const text = selection.toString().trim();
+            if (text && text.length > 0 && currentState === 'input') {
+                contextText = text;
+                updateContextPill();
+            }
+        };
+        document.addEventListener('mouseup', selectionHandler);
+
+        // Clean up listener when bubble is hidden
+        const originalHideBubble = hideBubble;
+        window.hideBubbleWithCleanup = function() {
+            document.removeEventListener('mouseup', selectionHandler);
+            originalHideBubble();
+        };
     }
 
     // Handle "Add to Chat" action
@@ -313,10 +423,14 @@ HIGHLIGHT_BUBBLE_JS = """
         const query = input.value.trim();
 
         if (query) {
-            console.log('Anki: Question submitted:', query, 'Context:', selectedText);
+            // Use contextText if available, otherwise use selectedText
+            const finalContext = contextText || selectedText;
+            console.log('Anki: Question submitted:', query, 'Context:', finalContext);
             // Send message to Python with format: query|context
-            pycmd('openevidence:ask_query:' + encodeURIComponent(query) + '|' + encodeURIComponent(selectedText));
+            pycmd('openevidence:ask_query:' + encodeURIComponent(query) + '|' + encodeURIComponent(finalContext));
             hideBubble();
+            // Clear context after submission
+            contextText = '';
         }
     }
 
