@@ -32,7 +32,6 @@ zip -r ../openevidence_panel.ankiaddon \
     reviewer_highlight.py \
     manifest.json \
     config.json \
-    meta.json \
     README.md \
     -x "*.pyc" -x "__pycache__/*" -x ".DS_Store" -x "package_addon.sh"
 
