@@ -22,10 +22,85 @@ HIGHLIGHT_BUBBLE_JS = """
     let cmdKeyHeld = false;
     let contextText = ''; // Store context text for the pill
 
+    // Helper function to check if pressed keys match config
+    function checkShortcut(e, configKeys) {
+        if (!configKeys || configKeys.length === 0) return false;
+
+        const pressedModifiers = {
+            'Meta': e.metaKey,
+            'Control': e.ctrlKey,
+            'Shift': e.shiftKey,
+            'Alt': e.altKey
+        };
+
+        // Check all modifiers match
+        for (const modifier of ['Meta', 'Control', 'Shift', 'Alt']) {
+            const shouldBePressed = configKeys.includes(modifier);
+            const isPressed = pressedModifiers[modifier];
+            if (shouldBePressed !== isPressed) return false;
+        }
+
+        // Check regular key
+        const regularKey = configKeys.find(k => !['Meta', 'Control', 'Shift', 'Alt'].includes(k));
+        if (regularKey && e.key.toUpperCase() !== regularKey.toUpperCase()) {
+            return false;
+        }
+
+        return true;
+    }
+
     // Track Command/Meta key state
     document.addEventListener('keydown', (e) => {
         if (e.metaKey || e.key === 'Meta' || e.key === 'Command') {
             cmdKeyHeld = true;
+        }
+
+        // Get shortcuts from config
+        const askQuestionKeys = window.quickActionsConfig?.askQuestion?.keys || ['Meta', 'R'];
+        const addToChatKeys = window.quickActionsConfig?.addToChat?.keys || ['Meta', 'F'];
+
+        // Ask Question shortcut
+        if (checkShortcut(e, askQuestionKeys)) {
+            e.preventDefault();
+            const selection = window.getSelection();
+            const text = selection.toString().trim();
+            if (text && text.length > 0) {
+                // If text is selected, show bubble with context
+                selectedText = text;
+                const range = selection.getRangeAt(0);
+                const rect = range.getBoundingClientRect();
+
+                // Show bubble and immediately switch to input state
+                bubble.style.display = 'block';
+                renderInputState();
+                setTimeout(() => positionBubble(rect), 0);
+            } else if (currentState === 'default' || bubble.style.display === 'none') {
+                // No text selected, but show bubble anyway in input mode
+                selectedText = '';
+                // Position in center of viewport
+                const centerRect = {
+                    left: window.innerWidth / 2,
+                    right: window.innerWidth / 2,
+                    top: window.innerHeight / 3,
+                    bottom: window.innerHeight / 3,
+                    width: 0,
+                    height: 0
+                };
+                bubble.style.display = 'block';
+                renderInputState();
+                setTimeout(() => positionBubble(centerRect), 0);
+            }
+        }
+
+        // Add to Chat shortcut
+        if (checkShortcut(e, addToChatKeys)) {
+            const selection = window.getSelection();
+            const text = selection.toString().trim();
+            if (text && text.length > 0) {
+                e.preventDefault();
+                selectedText = text;
+                handleAddToChat();
+            }
         }
     });
 
@@ -47,9 +122,9 @@ HIGHLIGHT_BUBBLE_JS = """
         div.style.cssText = `
             position: absolute;
             background: #1e1e1e;
-            border-radius: 8px;
+            border-radius: 6px;
             border: 1px solid #4b5563;
-            padding: 2px 5px;
+            padding: 4px;
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
             z-index: 9999;
             display: none;
@@ -57,7 +132,8 @@ HIGHLIGHT_BUBBLE_JS = """
             font-size: 12px;
             color: #ffffff;
             line-height: 1;
-            min-height: 20px;
+            min-height: auto;
+            overflow: hidden;
         `;
         document.body.appendChild(div);
         return div;
@@ -67,45 +143,49 @@ HIGHLIGHT_BUBBLE_JS = """
     function renderDefaultState() {
         currentState = 'default';
         bubble.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 2px; height: 100%; line-height: 1;">
+            <div style="display: flex; align-items: center; gap: 1px; line-height: 1; margin: 0; padding: 0;">
                 <button id="add-to-chat-btn" style="
                     background: transparent;
                     border: none;
                     color: #ffffff;
-                    padding: 0px 8px;
+                    padding: 2px 8px;
                     cursor: pointer;
-                    border-radius: 4px;
+                    border-radius: 3px;
                     font-size: 12px;
                     font-weight: 500;
                     transition: all 0.15s ease;
                     white-space: nowrap;
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    height: 22px;
-                    line-height: 22px;
                     display: inline-flex;
                     align-items: center;
+                    gap: 6px;
+                    line-height: 1;
+                    margin: 0;
                 ">
-                    Add to Chat
+                    <span>Add to Chat</span>
+                    <span style="font-size: 10px; color: #9ca3af; font-weight: 400;">${window.quickActionsConfig?.addToChat?.display || '⌘F'}</span>
                 </button>
-                <div style="width: 1px; height: 16px; background-color: #4b5563;"></div>
+                <div style="width: 1px; height: 14px; background-color: #4b5563; margin: 0;"></div>
                 <button id="ask-question-btn" style="
                     background: transparent;
                     border: none;
                     color: #ffffff;
-                    padding: 0px 8px;
+                    padding: 2px 8px;
                     cursor: pointer;
-                    border-radius: 4px;
+                    border-radius: 3px;
                     font-size: 12px;
                     font-weight: 500;
                     transition: all 0.15s ease;
                     white-space: nowrap;
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    height: 22px;
-                    line-height: 22px;
                     display: inline-flex;
                     align-items: center;
+                    gap: 6px;
+                    line-height: 1;
+                    margin: 0;
                 ">
-                    Ask Question
+                    <span>Ask Question</span>
+                    <span style="font-size: 10px; color: #9ca3af; font-weight: 400;">${window.quickActionsConfig?.askQuestion?.display || '⌘R'}</span>
                 </button>
             </div>
         `;
@@ -611,7 +691,55 @@ def inject_highlight_bubble(html, card, context):
     """
     # Only inject in review context (not in card layout or preview)
     if context in ("reviewQuestion", "reviewAnswer"):
-        # Add the JavaScript to the card HTML
+        # Load shortcuts from config
+        from aqt import mw
+        config = mw.addonManager.getConfig(__name__)
+        quick_actions = config.get("quick_actions", {
+            "add_to_chat": {"keys": ["Meta", "F"]},
+            "ask_question": {"keys": ["Meta", "R"]}
+        })
+
+        # Format shortcuts for JavaScript
+        add_to_chat_keys = quick_actions["add_to_chat"]["keys"]
+        ask_question_keys = quick_actions["ask_question"]["keys"]
+
+        # Create display text (e.g., "⌘F" or "Ctrl+Shift+F")
+        def format_shortcut_display(keys):
+            display_keys = []
+            for key in keys:
+                if key == "Meta":
+                    display_keys.append("⌘")
+                elif key == "Control":
+                    display_keys.append("Ctrl")
+                elif key == "Shift":
+                    display_keys.append("Shift")
+                elif key == "Alt":
+                    display_keys.append("Alt")
+                else:
+                    display_keys.append(key)
+            return "".join(display_keys) if "⌘" in display_keys else "+".join(display_keys)
+
+        add_to_chat_display = format_shortcut_display(add_to_chat_keys)
+        ask_question_display = format_shortcut_display(ask_question_keys)
+
+        # Inject config as JavaScript variables
+        config_js = f"""
+        <script>
+        window.quickActionsConfig = {{
+            addToChat: {{
+                keys: {add_to_chat_keys},
+                display: "{add_to_chat_display}"
+            }},
+            askQuestion: {{
+                keys: {ask_question_keys},
+                display: "{ask_question_display}"
+            }}
+        }};
+        </script>
+        """
+
+        # Add the config and JavaScript to the card HTML
+        html += config_js
         html += f"<script>{HIGHLIGHT_BUBBLE_JS}</script>"
 
     return html

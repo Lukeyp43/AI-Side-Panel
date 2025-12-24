@@ -21,7 +21,15 @@
             "question_template": "",
             "answer_template": "{back}"
         }
-    ]
+    ],
+    "quick_actions": {
+        "add_to_chat": {
+            "keys": ["Meta", "F"]
+        },
+        "ask_question": {
+            "keys": ["Meta", "R"]
+        }
+    }
 }
 
 

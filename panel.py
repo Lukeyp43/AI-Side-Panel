@@ -623,6 +623,31 @@ class OpenEvidencePanel(QWidget):
         self.stacked_widget.setCurrentIndex(1)
         self._update_title_bar(True)
 
+    def show_quick_actions_view(self):
+        """Show the quick actions settings view"""
+        # Get current widget at index 1
+        current_widget = self.stacked_widget.widget(1)
+
+        # Import here to avoid circular import at module level
+        from .settings_quick_actions import QuickActionsSettingsView
+
+        # If it's already a QuickActionsSettingsView, just show it
+        if current_widget and isinstance(current_widget, QuickActionsSettingsView):
+            self.stacked_widget.setCurrentIndex(1)
+            self._update_title_bar(True)
+            return
+
+        # Otherwise, remove whatever is there and create new quick actions view
+        if current_widget:
+            self.stacked_widget.removeWidget(current_widget)
+            current_widget.deleteLater()
+
+        # Create new quick actions view
+        self.settings_view = QuickActionsSettingsView(self)
+        self.stacked_widget.addWidget(self.settings_view)
+        self.stacked_widget.setCurrentIndex(1)
+        self._update_title_bar(True)
+
     def show_list_view(self):
         """Show the settings list view (alias for show_templates_view for backward compatibility)"""
         self.show_templates_view()

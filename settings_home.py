@@ -15,7 +15,6 @@ except ImportError:
     from PyQt5.QtGui import QPixmap, QPainter, QCursor
     from PyQt5.QtSvg import QSvgRenderer
 
-from aqt.utils import tooltip
 
 
 class SettingsHomeView(QWidget):
@@ -286,9 +285,9 @@ class SettingsHomeView(QWidget):
             self.parent_panel.show_templates_view()
 
     def open_quick_actions(self):
-        """Navigate to Quick Actions view (placeholder)"""
-        print("Quick Actions clicked - feature coming soon")
-        tooltip("Quick Actions - Coming Soon")
+        """Navigate to Quick Actions view"""
+        if self.parent_panel and hasattr(self.parent_panel, 'show_quick_actions_view'):
+            self.parent_panel.show_quick_actions_view()
 
     def request_feature(self):
         """Open feature request URL"""
