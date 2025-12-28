@@ -21,6 +21,7 @@ cp config.json.default config.json
 zip -r ../openevidence_ai.ankiaddon \
     __init__.py \
     panel.py \
+    tutorial_accordion.py \
     settings.py \
     settings_utils.py \
     settings_home.py \
@@ -30,6 +31,7 @@ zip -r ../openevidence_ai.ankiaddon \
     key_recorder.py \
     utils.py \
     reviewer_highlight.py \
+    tutorial.py \
     manifest.json \
     config.json \
     README.md \

@@ -765,7 +765,7 @@ def inject_highlight_bubble(html, card, context):
     if context in ("reviewQuestion", "reviewAnswer"):
         # Load shortcuts from config
         from aqt import mw
-        config = mw.addonManager.getConfig(__name__)
+        config = mw.addonManager.getConfig(__name__) or {}
         quick_actions = config.get("quick_actions", {
             "add_to_chat": {"keys": ["Meta", "F"]},
             "ask_question": {"keys": ["Meta", "R"]}

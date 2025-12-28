@@ -25,11 +25,17 @@ def create_dock_widget():
         # Check if onboarding is complete
         config = mw.addonManager.getConfig(__name__) or {}
         onboarding_complete = config.get("onboarding_completed", False)
+        tutorial_complete = config.get("tutorial_completed", False)
 
         # Create the appropriate widget
         if onboarding_complete:
             panel = OpenEvidencePanel()
             # The panel will automatically start loading OpenEvidence in the background
+
+            # If onboarding is done but tutorial isn't, start tutorial when panel opens
+            if not tutorial_complete:
+                from aqt.qt import QTimer
+                QTimer.singleShot(1000, lambda: start_tutorial_if_panel_visible())
         else:
             panel = OnboardingWidget()
 
@@ -58,6 +64,14 @@ def create_dock_widget():
     return dock_widget
 
 
+def start_tutorial_if_panel_visible():
+    """Start tutorial only if panel is visible"""
+    global dock_widget
+    if dock_widget and dock_widget.isVisible():
+        from .tutorial_accordion import show_tutorial_accordion
+        show_tutorial_accordion()
+
+
 def toggle_panel():
     """Toggle the OpenEvidence dock widget visibility"""
     global dock_widget
@@ -76,11 +90,28 @@ def toggle_panel():
         dock_widget.show()
         dock_widget.raise_()
 
+        # Notify tutorial that panel was opened
+        try:
+            from .tutorial import tutorial_event
+            tutorial_event("panel_opened")
+        except:
+            pass
+
 
 def on_webview_did_receive_js_message(handled, message, context):
     """Handle pycmd messages from toolbar and highlight bubble"""
     if message == "openevidence":
         toggle_panel()
+        return (True, None)
+
+    # Handle tutorial event messages
+    if message.startswith("tutorial:"):
+        event_name = message.replace("tutorial:", "", 1)
+        try:
+            from .tutorial import tutorial_event
+            tutorial_event(event_name)
+        except:
+            pass
         return (True, None)
 
     # Handle highlight bubble messages
@@ -93,6 +124,14 @@ def on_webview_did_receive_js_message(handled, message, context):
         except:
             pass
         handle_add_context(selected_text)
+
+        # Notify tutorial that text was highlighted
+        try:
+            from .tutorial import tutorial_event
+            tutorial_event("text_highlighted")
+        except:
+            pass
+
         return (True, None)
 
     if message.startswith("openevidence:ask_query:"):

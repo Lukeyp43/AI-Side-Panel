@@ -286,6 +286,13 @@ class CustomTitleBar(QWidget):
         if panel and hasattr(panel, 'toggle_settings_view'):
             panel.toggle_settings_view()
 
+            # Notify tutorial that settings was opened
+            try:
+                from .tutorial import tutorial_event
+                tutorial_event("settings_opened")
+            except:
+                pass
+
     def go_back(self):
         """Context-aware back navigation"""
         panel = self.dock_widget.widget()
@@ -820,6 +827,11 @@ class OpenEvidencePanel(QWidget):
                         if (window.ankiCardTexts && window.ankiCardTexts[i]) {
                             fillInputField(activeElement, window.ankiCardTexts[i]);
                             console.log('Anki: Filled search box with card text using React-compatible events');
+
+                            // Notify tutorial that shortcut was used
+                            if (window.ankiShortcutUsedCallback) {
+                                window.ankiShortcutUsedCallback();
+                            }
                         } else {
                             console.log('Anki: No card text available for this keybinding');
                         }
@@ -925,7 +937,16 @@ class OpenEvidencePanel(QWidget):
         # Convert to JSON and inject
         if card_texts:
             texts_json = json.dumps(card_texts)
-            js_code = f"window.ankiCardTexts = {texts_json};"
+            # Also inject tutorial event notification
+            js_code = f"""
+            window.ankiCardTexts = {texts_json};
+            // Notify tutorial when shortcut is used
+            window.ankiShortcutUsedCallback = function() {{
+                if (typeof pycmd !== 'undefined') {{
+                    pycmd('tutorial:shortcut_used');
+                }}
+            }};
+            """
             try:
                 self.web.page().runJavaScript(js_code)
             except Exception as e:
@@ -1254,6 +1275,10 @@ class OnboardingWidget(QWidget):
         if dock_widget:
             panel = OpenEvidencePanel()
             dock_widget.setWidget(panel)
+
+            # Show tutorial accordion after a short delay
+            from .tutorial_accordion import show_tutorial_accordion
+            QTimer.singleShot(500, show_tutorial_accordion)
 
     def on_star_clicked(self):
         if not self.step_completed:

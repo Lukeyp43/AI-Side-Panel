@@ -2,6 +2,7 @@
     "width": 500,
     "height_percentage": 0.9,
     "onboarding_completed": false,
+    "tutorial_completed": false,
     "keybindings": [
         {
             "name": "Standard Explain",
