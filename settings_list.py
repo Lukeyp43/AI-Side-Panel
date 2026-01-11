@@ -449,5 +449,12 @@ class SettingsListView(QWidget):
 
     def edit_keybinding(self, index):
         """Edit a keybinding"""
+        # Notify tutorial FIRST (before view changes)
+        try:
+            from .tutorial import tutorial_event
+            tutorial_event("template_edit_opened")
+        except Exception as e:
+            print(f"Tutorial event error: {e}")
+        
         if self.parent_panel and hasattr(self.parent_panel, 'show_editor_view'):
             self.parent_panel.show_editor_view(self.keybindings[index].copy(), index)

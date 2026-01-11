@@ -283,11 +283,23 @@ class SettingsHomeView(QWidget):
         """Navigate to Templates view"""
         if self.parent_panel and hasattr(self.parent_panel, 'show_templates_view'):
             self.parent_panel.show_templates_view()
+            # Notify tutorial
+            try:
+                from .tutorial import tutorial_event
+                tutorial_event("templates_opened")
+            except:
+                pass
 
     def open_quick_actions(self):
         """Navigate to Quick Actions view"""
         if self.parent_panel and hasattr(self.parent_panel, 'show_quick_actions_view'):
             self.parent_panel.show_quick_actions_view()
+            # Notify tutorial
+            try:
+                from .tutorial import tutorial_event
+                tutorial_event("quick_actions_opened")
+            except:
+                pass
 
     def request_feature(self):
         """Open feature request URL"""

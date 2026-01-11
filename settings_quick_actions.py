@@ -29,7 +29,7 @@ class QuickActionsSettingsView(KeyRecorderMixin, QWidget):
         self.setup_key_recorder()
 
         # Load current shortcuts from config
-        config = mw.addonManager.getConfig(__name__)
+        config = mw.addonManager.getConfig(__name__) or {}
         self.shortcuts = config.get("quick_actions", {
             "add_to_chat": {"keys": ["Meta", "F"]},
             "ask_question": {"keys": ["Meta", "R"]}

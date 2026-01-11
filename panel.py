@@ -570,15 +570,39 @@ class OpenEvidencePanel(QWidget):
                     current_widget.discard_and_go_back()
                 else:
                     self.show_templates_view()
+                # Notify tutorial
+                try:
+                    from .tutorial import tutorial_event
+                    tutorial_event("settings_back_to_templates")
+                except:
+                    pass
             elif isinstance(current_widget, SettingsListView):
                 # In templates list view, go back to settings home
                 self.show_home_view()
+                # Notify tutorial
+                try:
+                    from .tutorial import tutorial_event
+                    tutorial_event("settings_back_to_home")
+                except:
+                    pass
             elif isinstance(current_widget, QuickActionsSettingsView):
                 # In quick actions view, go back to settings home
                 self.show_home_view()
+                # Notify tutorial
+                try:
+                    from .tutorial import tutorial_event
+                    tutorial_event("settings_back_to_home")
+                except:
+                    pass
             elif isinstance(current_widget, SettingsHomeView):
                 # In settings home, go back to web view
                 self.show_web_view()
+                # Notify tutorial
+                try:
+                    from .tutorial import tutorial_event
+                    tutorial_event("panel_web_view")
+                except:
+                    pass
             else:
                 # Default: go to web view
                 self.show_web_view()

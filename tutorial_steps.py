@@ -211,8 +211,8 @@ TUTORIAL_STEPS = [
         step_id="start_new_chat",
         target_type="none",
         target_ref=None,
-        title="First, let's start a fresh chat.",
-        subtext="Click the pencil/edit icon in the top right of the sidebar to start a new conversation.",
+        title="First, let's start fresh.",
+        subtext="Click the OpenEvidence logo in the top left of the sidebar to go back to the home screen.",
         advance_on_event=None,
         action_button="Done"
     ),
@@ -256,7 +256,7 @@ TUTORIAL_STEPS = [
         target_type="none",
         target_ref=None,
         title="Nice! You sent just the question.",
-        subtext="Clear the text in the sidebar, then let's try the answer shortcut — but first, we need to reveal it.",
+        subtext="Clear the text in the sidebar, then let's try the answer shortcut.",
         advance_on_event=None,
         action_button="Next"
     ),
@@ -266,8 +266,8 @@ TUTORIAL_STEPS = [
         step_id="show_answer",
         target_type="none",
         target_ref=None,
-        title="Please reveal the answer.",
-        subtext="The next shortcut (Ctrl+Shift+A) sends the back of the card, so both the front and back need to be visible.",
+        title="Please reveal the answer on your current card.",
+        subtext="Click \"Show Answer\" below. The next shortcut (Ctrl+Shift+A) sends the back of the card, so both sides need to be visible.",
         advance_on_event="answer_shown",
         action_button=None
     ),
@@ -335,18 +335,150 @@ TUTORIAL_STEPS = [
         target_type="none",
         target_ref=None,
         title="Welcome to Settings!",
-        subtext="Here you can edit templates, change keyboard shortcuts, or create your own custom templates.",
+        subtext="Let's take a quick look around. You'll see two sections: Templates and Quick Actions.",
         advance_on_event=None,
         action_button="Next"
     ),
 
-    # Step 21: Finish
+    # Step 21: Click Templates
+    TutorialStep(
+        step_id="click_templates",
+        target_type="none",
+        target_ref=None,
+        title="Click on \"Templates\" to see your shortcuts.",
+        subtext=None,
+        advance_on_event="templates_opened",
+        action_button=None
+    ),
+
+    # Step 22: Templates list overview - click edit
+    TutorialStep(
+        step_id="templates_list_overview",
+        target_type="none",
+        target_ref=None,
+        title="Here are your template shortcuts.",
+        subtext="Click the pencil icon on any template to edit it.",
+        advance_on_event="template_edit_opened",
+        action_button=None
+    ),
+
+    # Step 23: Templates edit explanation
+    TutorialStep(
+        step_id="templates_edit_explain",
+        target_type="none",
+        target_ref=None,
+        title="When you edit a template, you can:",
+        subtext="• Change the keyboard shortcut\n• Edit the text that gets sent to OpenEvidence\n• Delete templates you don't need",
+        advance_on_event=None,
+        action_button="Next"
+    ),
+
+    # Step 24: Go back to templates list
+    TutorialStep(
+        step_id="templates_go_back_to_list",
+        target_type="none",
+        target_ref=None,
+        title="Click the back arrow to return to the templates list.",
+        subtext=None,
+        advance_on_event="settings_back_to_templates",
+        action_button=None
+    ),
+
+    # Step 25: Go back to settings home
+    TutorialStep(
+        step_id="templates_go_back_to_home",
+        target_type="none",
+        target_ref=None,
+        title="Click the back arrow one more time to return to Settings.",
+        subtext=None,
+        advance_on_event="settings_back_to_home",
+        action_button=None
+    ),
+
+    # Step 25: Click Quick Actions
+    TutorialStep(
+        step_id="click_quick_actions",
+        target_type="none",
+        target_ref=None,
+        title="Now click on \"Quick Actions\".",
+        subtext=None,
+        advance_on_event="quick_actions_opened",
+        action_button=None
+    ),
+
+    # Step 26: Quick Actions overview
+    TutorialStep(
+        step_id="quick_actions_overview",
+        target_type="none",
+        target_ref=None,
+        title="These are your Quick Action shortcuts.",
+        subtext="Remember ⌘F (Add to Chat) and ⌘R (Ask Question)? You can change these shortcuts here if you'd like.",
+        advance_on_event=None,
+        action_button="Next"
+    ),
+
+    # Step 27: Go back to settings home from Quick Actions
+    TutorialStep(
+        step_id="quick_actions_go_back",
+        target_type="none",
+        target_ref=None,
+        title="Click the back arrow to return to Settings.",
+        subtext=None,
+        advance_on_event="settings_back_to_home",
+        action_button=None
+    ),
+
+    # Step 28: Go back to OpenEvidence
+    TutorialStep(
+        step_id="go_back_to_openevidence",
+        target_type="none",
+        target_ref=None,
+        title="Click the back arrow one more time to return to OpenEvidence.",
+        subtext=None,
+        advance_on_event="panel_web_view",
+        action_button=None
+    ),
+
+    # Step 29: Recommendation to sign up
+    TutorialStep(
+        step_id="signup_recommendation",
+        target_type="none",
+        target_ref=None,
+        title="One last tip!",
+        subtext="We recommend signing in or creating a free OpenEvidence account to save your chat history.\n\nDon't worry — we store cookies so you'll stay logged in automatically!",
+        advance_on_event=None,
+        action_button="Next"
+    ),
+
+    # Step 30: How to sign in
+    TutorialStep(
+        step_id="how_to_signin",
+        target_type="none",
+        target_ref=None,
+        title="How to sign in:",
+        subtext="Click the hamburger menu (☰) in the top right of the sidebar, then tap \"Log in\" or \"Sign up\".",
+        advance_on_event=None,
+        action_button="Next"
+    ),
+
+    # Step 31: Why I built this
+    TutorialStep(
+        step_id="why_i_built_this",
+        target_type="none",
+        target_ref=None,
+        title="Why I built this:",
+        subtext="I built this add-on to help bring AI to studying. I chose OpenEvidence because the AI is based on medical journal research, it's 100% free for medical students/MDs, and it's awesome!",
+        advance_on_event=None,
+        action_button="Next"
+    ),
+
+    # Step 32: Finish
     TutorialStep(
         step_id="finish",
         target_type="none",
         target_ref=None,
         title="You're all set! 🎉",
-        subtext="You now know Quick Actions and Templates. Create an account on openevidence.com to save your chat history.",
+        subtext="You now know Quick Actions, Templates, and Settings. Happy studying!",
         advance_on_event=None,
         action_button="Finish"
     ),
