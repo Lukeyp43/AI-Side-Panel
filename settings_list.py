@@ -7,7 +7,7 @@ from aqt import mw
 from aqt.utils import tooltip
 
 # Addon name for config storage (must match folder name, not __name__)
-ADDON_NAME = "openevidence_panel"
+ADDON_NAME = "the_ai_panel"
 
 try:
     from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea

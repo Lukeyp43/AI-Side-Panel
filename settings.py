@@ -1,5 +1,5 @@
 """
-Settings UI for the AI Panel add-on.
+Settings UI for The AI Panel add-on.
 Contains the drill-down settings interface with list and editor views.
 
 This module re-exports all settings components from their individual modules

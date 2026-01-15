@@ -64,7 +64,7 @@ def create_dock_widget():
 
     if dock_widget is None:
         # Create the dock widget
-        dock_widget = QDockWidget("AI Panel", mw)
+        dock_widget = QDockWidget("The AI Panel", mw)
         dock_widget.setObjectName("AIPanelDock")
 
         # Check if onboarding is complete
@@ -442,7 +442,7 @@ def add_toolbar_button(links, toolbar):
 
     # Add the AI Panel panel button
     links.append(
-        f'<a class="hitem" href="#" onclick="pycmd(\'openevidence\'); return false;" title="AI Panel">{open_book_icon}</a>'
+        f'<a class="hitem" href="#" onclick="pycmd(\'openevidence\'); return false;" title="The AI Panel">{open_book_icon}</a>'
     )
 
 
@@ -457,10 +457,28 @@ def preload_panel():
     # Try to send analytics once per day (non-blocking)
     try_send_daily_analytics()
 
+    # Start hourly periodic check for analytics
+    # This catches users who leave Anki open for multiple days
+    start_periodic_analytics_check()
+
     # Wait 500ms after Anki finishes initializing to start preloading
     # This ensures Anki's UI is responsive while OpenEvidence loads in background
     from aqt.qt import QTimer
     QTimer.singleShot(500, create_dock_widget)
+
+
+# Global timer for periodic analytics check
+_analytics_timer = None
+
+def start_periodic_analytics_check():
+    """Start a timer that checks every hour if we need to send analytics."""
+    global _analytics_timer
+    from aqt.qt import QTimer
+    
+    _analytics_timer = QTimer()
+    _analytics_timer.timeout.connect(try_send_daily_analytics)
+    # Check every hour (3600000 ms) - very lightweight, just a date comparison
+    _analytics_timer.start(3600000)
 
 
 def on_answer_shown(card):

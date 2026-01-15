@@ -4,7 +4,7 @@ from aqt import mw
 from aqt.qt import *
 
 # Addon name for config storage (must match folder name, not __name__)
-ADDON_NAME = "openevidence_panel"
+ADDON_NAME = "the_ai_panel"
 
 try:
     from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -181,7 +181,7 @@ class CustomTitleBar(QWidget):
         layout.addWidget(self.back_button)
 
         # Title label
-        self.title_label = QLabel("AI Panel")
+        self.title_label = QLabel("The AI Panel")
         self.title_label.setStyleSheet("color: rgba(255, 255, 255, 0.9); font-size: 13px; font-weight: 500;")
         layout.addWidget(self.title_label)
 
@@ -346,7 +346,7 @@ class CustomTitleBar(QWidget):
             self.settings_button.setVisible(False)
         else:
             # Web view mode
-            self.title_label.setText("AI Panel")
+            self.title_label.setText("The AI Panel")
             self.back_button.setVisible(False)
             self.settings_button.setVisible(True)
 
@@ -1210,7 +1210,7 @@ class OnboardingWidget(QWidget):
         layout.setSpacing(0)
 
         # Title/Headline
-        title = QLabel("AI Panel")
+        title = QLabel("The AI Panel")
         title.setStyleSheet("""
             font-size: 32px;
             font-weight: 700;

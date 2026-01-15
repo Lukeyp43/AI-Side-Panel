@@ -6,7 +6,7 @@ Shows a floating action bar when text is highlighted on flashcards
 from aqt import mw, gui_hooks
 
 # Addon name for config storage (must match folder name, not __name__)
-ADDON_NAME = "openevidence_panel"
+ADDON_NAME = "the_ai_panel"
 
 
 # JavaScript code to inject into the reviewer

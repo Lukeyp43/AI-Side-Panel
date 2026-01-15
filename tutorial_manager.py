@@ -12,9 +12,10 @@ from aqt import mw
 from .tutorial_coach_mark import CoachMark
 from .tutorial_overlay import TutorialOverlay
 from .tutorial_steps import get_tutorial_steps, get_step_target_rect
+from . import analytics
 
 # Addon name for config storage (must match folder name, not __name__)
-ADDON_NAME = "openevidence_panel"
+ADDON_NAME = "the_ai_panel"
 
 
 class TutorialManager(QObject):
@@ -102,6 +103,13 @@ class TutorialManager(QObject):
 
         Hides all UI components and saves completion state to config.
         """
+        # Track skip status with current progress
+        if self.current_step_index == 0:
+            analytics.track_tutorial_status("skip")
+        else:
+            analytics.track_tutorial_status("skipped_midway")
+        analytics.track_tutorial_step(self.current_step_index, len(self.tutorial_steps))
+        
         self.tutorial_active = False
         self.position_check_timer.stop()
         self._hide_all()
@@ -174,6 +182,9 @@ class TutorialManager(QObject):
         If this was the last step, completes the tutorial.
         """
         self.current_step_index += 1
+        
+        # Track tutorial progress (e.g., "7/36")
+        analytics.track_tutorial_step(self.current_step_index, len(self.tutorial_steps))
 
         if self.current_step_index >= len(self.tutorial_steps):
             # Tutorial complete!
@@ -295,7 +306,7 @@ class TutorialManager(QObject):
             from anki.collection import Collection
 
             # Create or get the demo deck
-            deck_name = "AI Panel Demo"
+            deck_name = "The AI Panel Demo"
             deck_id = mw.col.decks.id(deck_name)
 
             # Check if deck already has cards
@@ -403,6 +414,9 @@ class TutorialManager(QObject):
 
         Hides all UI, marks as completed, and deactivates tutorial mode.
         """
+        # Track tutorial completion
+        analytics.track_tutorial_status("completed")
+        
         self.tutorial_active = False
         self.position_check_timer.stop()
         self._hide_all()

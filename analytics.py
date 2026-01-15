@@ -1,20 +1,3 @@
-"""
-Analytics tracking for AI Panel addon.
-
-Silently tracks minimal usage data in meta.json for retention and improvement metrics:
-- First install date
-- Daily usage counts (90-day rolling window)
-- Total usage count
-- Platform info (Mac/Windows/Linux)
-- Locale info (e.g., "en_US" - hints at US users)
-- Timezone info (e.g., "PST")
-- Sign up/login events
-- Which auth button was clicked (signup vs login)
-
-All data is stored locally in meta.json only. No user-facing UI.
-Data is intended to be collected later via API endpoint.
-"""
-
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 from aqt import mw
@@ -24,7 +7,7 @@ import threading
 from urllib import request, error
 
 
-ADDON_NAME = "openevidence_panel"
+ADDON_NAME = "the_ai_panel"
 
 
 def get_analytics_data() -> Dict:
@@ -296,19 +279,13 @@ def send_analytics_background():
             # Get analytics data
             analytics = get_analytics_data()
 
-            # Calculate retention metrics
-            metrics = get_retention_metrics()
-
-            # Prepare payload (minimal data)
+            # Note: Server now calculates retention from active_dates array
             payload = {
                 "first_install_date": analytics.get("first_install_date"),
                 "platform": analytics.get("platform"),
                 "locale": analytics.get("locale"),
                 "timezone": analytics.get("timezone"),
                 "total_uses": analytics.get("total_uses", 0),
-                "active_days": metrics.get("active_days", 0),
-                "days_since_install": metrics.get("days_since_install", 0),
-                "retention_rate": metrics.get("retention_rate", 0),
                 "has_logged_in": analytics.get("has_logged_in", False),
                 "signup_method": analytics.get("signup_method"),
                 "auth_button_clicked": analytics.get("auth_button_clicked"),
