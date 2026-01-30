@@ -10,7 +10,7 @@ Ask questions and get answers from real medical research. Whether you are review
 
 *   **Free** for the healthcare community.
 *   **Real Citations**: Answers link to peer-reviewed sources like JAMA and PubMed.
-*   **Context-Aware**: It knows what card you are studying.
+*   **Easy Context Sharing**: Quickly send your card text to get relevant answers.
 *   *(Requires internet connection)*
 
 ---
