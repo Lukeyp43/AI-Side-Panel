@@ -1,6 +1,6 @@
 """
-Review Request Modal - Shows after referral modal to ask for AnkiWeb review.
-Similar structure to referral.py but with different copy and destination.
+Review Request Modal - Shows to engaged users to ask for AnkiWeb review.
+Triggers for users with 3+ active days and 5+ total messages.
 """
 
 from datetime import datetime
@@ -26,41 +26,34 @@ def should_show_review() -> bool:
     """
     Check if we should show the review modal.
     Trigger IF AND ONLY IF:
-    1. Referral modal was already shown (has_shown_referral == True)
-    2. Review modal not yet shown (!has_shown_review)
-    3. Days active >= review_days_threshold (default: 7)
-    4. Messages today >= review_message_threshold (default: 3)
+    1. Review modal not yet shown (!has_shown_review)
+    2. Days active >= 3
+    3. Total messages across all time >= 5
     """
     config = mw.addonManager.getConfig(ADDON_NAME) or {}
     analytics = config.get("analytics", {})
-    
-    # Must have seen referral first
-    if not analytics.get("has_shown_referral", False):
-        return False
-    
+
     # Check if already shown review
     if analytics.get("has_shown_review", False):
         return False
-    
+
     # Check days active
     daily_usage = analytics.get("daily_usage", {})
     days_active = len(daily_usage.keys())
-    
-    if days_active < config.get("review_days_threshold", 8):
+
+    if days_active < config.get("review_days_threshold", 3):
         return False
-    
-    # Check messages today
-    today = datetime.now().strftime("%Y-%m-%d")
-    todays_sessions = daily_usage.get(today, [])
-    
-    # Sum all messages across today's sessions
-    messages_today = sum(session.get("messages", 0) for session in todays_sessions)
-    
-    # Trigger on message count threshold
-    review_threshold = config.get("review_message_threshold", 3)
-    if messages_today < review_threshold:
+
+    # Check total messages across all time
+    total_messages = 0
+    for day, sessions in daily_usage.items():
+        if isinstance(sessions, list):
+            for session in sessions:
+                total_messages += session.get("messages", 0)
+
+    if total_messages < config.get("review_message_threshold", 5):
         return False
-    
+
     return True
 
 

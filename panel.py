@@ -8,16 +8,16 @@ from .utils import ADDON_NAME
 
 try:
     from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                                  QDockWidget, QStackedWidget)
-    from PyQt6.QtCore import Qt, QUrl, QTimer, QByteArray, QSize
+                                  QDockWidget, QStackedWidget, QGraphicsDropShadowEffect)
+    from PyQt6.QtCore import Qt, QUrl, QTimer, QByteArray, QSize, QEvent
     from PyQt6.QtGui import QIcon, QPixmap, QPainter, QCursor, QColor
     from PyQt6.QtSvg import QSvgRenderer
     from PyQt6.QtWebEngineWidgets import QWebEngineView
     from PyQt6.QtWebEngineCore import QWebEngineSettings, QWebEngineProfile, QWebEnginePage
 except ImportError:
     from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                                  QDockWidget, QStackedWidget)
-    from PyQt5.QtCore import Qt, QUrl, QTimer, QByteArray, QSize
+                                  QDockWidget, QStackedWidget, QGraphicsDropShadowEffect)
+    from PyQt5.QtCore import Qt, QUrl, QTimer, QByteArray, QSize, QEvent
     from PyQt5.QtGui import QIcon, QPixmap, QPainter, QCursor, QColor
     from PyQt5.QtSvg import QSvgRenderer
     try:
@@ -43,30 +43,17 @@ from .theme_manager import ThemeManager
 import os
 
 
-# Custom WebEnginePage to intercept console messages for tutorial events
+# Custom WebEnginePage to intercept console messages for analytics
 class TutorialAwarePage(QWebEnginePage):
-    """Custom page that intercepts JavaScript console messages to trigger tutorial events"""
+    """Custom page that intercepts JavaScript console messages for analytics"""
 
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
-        """Override to catch special tutorial messages from JavaScript"""
-        # Check for our special tutorial trigger messages
-        if message == "ANKI_TUTORIAL:shortcut_used":
-            try:
-                from .tutorial import tutorial_event
-                tutorial_event("shortcut_used")
-            except:
-                pass
+        """Override to catch special analytics messages from JavaScript"""
         # Track template usage (any template)
-        elif message.startswith("ANKI_ANALYTICS:template_used"):
+        if message.startswith("ANKI_ANALYTICS:template_used"):
             try:
                 from .analytics import track_template_used
                 track_template_used()
-            except:
-                pass
-        elif message == "ANKI_TUTORIAL:template_used":
-            try:
-                from .tutorial import tutorial_event
-                tutorial_event("template_used")
             except:
                 pass
         # Check for auth button click tracking
@@ -87,18 +74,12 @@ class TutorialAwarePage(QWebEnginePage):
             try:
                 from .analytics import track_message_sent
                 track_message_sent()
-                
-                # Check if we should show referral overlay (after tracking message)
-                from .referral import show_referral_overlay_if_eligible
-                # Check if we should show review overlay (after referral)
+
                 from .review import show_review_overlay_if_eligible
-                # Use QTimer to show overlay after JS processing completes
                 from aqt.qt import QTimer
-                # Get the parent OpenEvidencePanel widget
                 panel = self.parent()
                 if panel:
-                    # Try referral first, then review (only one will show based on eligibility)
-                    QTimer.singleShot(500, lambda: show_referral_overlay_if_eligible(panel) or show_review_overlay_if_eligible(panel))
+                    QTimer.singleShot(500, lambda: show_review_overlay_if_eligible(panel))
             except Exception as e:
                 print(f"AI Panel: Error in message tracking: {e}")
         # Call parent implementation for normal logging
@@ -350,12 +331,6 @@ class CustomTitleBar(QWidget):
         if panel and hasattr(panel, 'toggle_settings_view'):
             panel.toggle_settings_view()
 
-            # Notify tutorial that settings was opened
-            try:
-                from .tutorial import tutorial_event
-                tutorial_event("settings_opened")
-            except:
-                pass
 
     def go_back(self):
         """Context-aware back navigation"""
@@ -630,39 +605,15 @@ class OpenEvidencePanel(QWidget):
                     current_widget.discard_and_go_back()
                 else:
                     self.show_templates_view()
-                # Notify tutorial
-                try:
-                    from .tutorial import tutorial_event
-                    tutorial_event("settings_back_to_templates")
-                except:
-                    pass
             elif isinstance(current_widget, SettingsListView):
                 # In templates list view, go back to settings home
                 self.show_home_view()
-                # Notify tutorial
-                try:
-                    from .tutorial import tutorial_event
-                    tutorial_event("settings_back_to_home")
-                except:
-                    pass
             elif isinstance(current_widget, QuickActionsSettingsView):
                 # In quick actions view, go back to settings home
                 self.show_home_view()
-                # Notify tutorial
-                try:
-                    from .tutorial import tutorial_event
-                    tutorial_event("settings_back_to_home")
-                except:
-                    pass
             elif isinstance(current_widget, SettingsHomeView):
                 # In settings home, go back to web view
                 self.show_web_view()
-                # Notify tutorial
-                try:
-                    from .tutorial import tutorial_event
-                    tutorial_event("panel_web_view")
-                except:
-                    pass
             else:
                 # Default: go to web view
                 self.show_web_view()
@@ -1075,9 +1026,6 @@ class OpenEvidencePanel(QWidget):
                             fillInputField(activeElement, window.ankiCardTexts[i]);
                             console.log('Anki: Filled search box with card text using React-compatible events');
 
-                            // Notify tutorial that shortcut was used (via console message)
-                            console.log('ANKI_TUTORIAL:shortcut_used');
-                            
                             // Track template usage with specific shortcut for analytics
                             console.log('ANKI_ANALYTICS:template_used:' + binding.keys.join('+'));
                         } else {
@@ -1192,396 +1140,385 @@ class OpenEvidencePanel(QWidget):
                 print(f"OpenEvidence: Error updating card texts: {e}")
 
 
-class OnboardingWidget(QWidget):
-    """Onboarding widget shown in the side panel"""
+class OnboardingDialog(QWidget):
+    """Centered onboarding popup with 3 slides, shown over the main Anki window.
+    Animates in with a smooth slide-up + fade. The sidebar already has OpenEvidence
+    loading in the background while this dialog is visible."""
+
+    FONT = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.step_completed = False
-        self.current_page = 0
-        self.setup_ui()
+        import sys
+        self.is_mac = sys.platform == "darwin"
+        self._backdrop_opacity = 0
 
-    def set_icon_from_svg(self, label, svg_str, size=20, color=None):
-        """Helper to set SVG icon to a label"""
-        # Render at high resolution (4x scale) for crisp display on Retina/HighDPI
-        render_size = size * 4
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-        svg_bytes = QByteArray(svg_str.encode())
-        renderer = QSvgRenderer(svg_bytes)
-        pixmap = QPixmap(render_size, render_size)
-        try:
-            pixmap.fill(Qt.GlobalColor.transparent)
-        except:
-            pixmap.fill(Qt.transparent)
+        self._setup_ui()
 
-        painter = QPainter(pixmap)
-        renderer.render(painter)
-        painter.end()
+        if parent:
+            parent.installEventFilter(self)
 
-        # Set scalable contents on label so it downscales the high-res pixmap
-        label.setPixmap(pixmap)
-        label.setScaledContents(True)
+    def eventFilter(self, watched, event):
+        if watched == self.parent() and event.type() == QEvent.Type.Resize:
+            QTimer.singleShot(30, self._sync_geometry)
+        return super().eventFilter(watched, event)
 
-    def setup_ui(self):
-        # Main layout with stacked widget for pages
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+    # ── Styles ──
 
-        # Create stacked widget for multiple pages
-        self.stacked_widget = QStackedWidget()
-        main_layout.addWidget(self.stacked_widget)
-
-        # Create the welcome page (only page now - GitHub step removed)
-        self.create_page1()
-
-        # Start with page 1
-        self.stacked_widget.setCurrentIndex(0)
-
-    def create_page1(self):
-        """Create the first welcome page"""
-        c = ThemeManager.get_palette()
-        
-        page = QWidget()
-        outer_layout = QVBoxLayout(page)
-        outer_layout.setContentsMargins(16, 0, 16, 0)
-        outer_layout.addSpacing(90)
-
-        # Container with responsive width
-        container = QWidget()
-        container.setMaximumWidth(380)
-        container.setStyleSheet("background: transparent;")
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Title/Headline
-        title = QLabel("AI Side Panel")
-        title.setStyleSheet(f"""
-            font-size: 32px;
-            font-weight: 700;
-            color: {c['text']};
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 0px 0px 16px 0px;
-        """)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
-        
-        # Tight gap after title (6px - they're related text)
-        layout.addSpacing(6)
-
-        # Creator name
-        creator = QLabel("Created by Luke Pettit")
-        creator.setStyleSheet(f"""
-            font-size: 14px;
-            color: {c['text_secondary']};
-            font-weight: 500;
-        """)
-        creator.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(creator)
-
-        # Breathing room before button (28px - action separation)
-        layout.addSpacing(28)
-
-        # Next button
-        next_btn = QPushButton("Next →")
-        next_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        next_btn.setStyleSheet(f"""
+    def _primary_btn(self, c):
+        return f"""
             QPushButton {{
-                background: {c['accent']};
-                color: #FFFFFF;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {c['accent']}, stop:1 #2563eb);
+                color: #ffffff;
                 border: none;
-                border-radius: 8px;
-                font-size: 16px;
+                border-radius: 12px;
+                font-size: 15px;
                 font-weight: 600;
-                padding: 16px;
+                padding: 15px 0px;
+                font-family: {self.FONT};
             }}
             QPushButton:hover {{
-                background: {c['accent_hover']};
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #2563eb, stop:1 #1d4ed8);
             }}
-        """)
-        next_btn.clicked.connect(self.complete_onboarding)
-        layout.addWidget(next_btn)
+        """
 
-        outer_layout.addWidget(container, 0, Qt.AlignmentFlag.AlignHCenter)
-        outer_layout.addStretch(1)
-        self.stacked_widget.addWidget(page)
-
-    def create_page2(self):
-        """Create the second page (Star on GitHub)"""
-        c = ThemeManager.get_palette()
-        
-        page = QWidget()
-        outer_layout = QVBoxLayout(page)
-        outer_layout.setContentsMargins(16, 0, 16, 0)
-        outer_layout.addSpacing(90)
-
-        # Container with responsive width
-        container = QWidget()
-        container.setMaximumWidth(380)
-        container.setStyleSheet("background: transparent;")
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Headline
-        headline = QLabel("Unlock Unlimited Requests")
-        headline.setStyleSheet(f"""
-            font-size: 26px;
-            font-weight: 700;
-            color: {c['text']};
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 0px 0px 8px 0px;
-        """)
-        headline.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(headline)
-
-        # Gap after headline (32px)
-        layout.addSpacing(32)
-
-        # Body text
-        body = QLabel("Give us a free star on GitHub to get unlimited requests on our add-on for free.")
-        body.setWordWrap(True)
-        body.setStyleSheet(f"""
-            font-size: 15px;
-            color: {c['text_secondary']};
-            font-weight: 400;
-            line-height: 1.5;
-            padding-left: 2px;
-        """)
-        body.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(body)
-
-        # Small gap before checkbox (20px)
-        layout.addSpacing(20)
-
-        # CHECKBOX ROW - custom widget using QPushButton for layout control
-        self.star_btn = QPushButton()
-        self.star_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.star_btn.setFixedHeight(54)
-        self.star_btn.setStyleSheet(f"""
+    def _ghost_btn(self, c):
+        return f"""
             QPushButton {{
-                background: {c['surface']};
+                background: transparent;
+                color: {c['text']};
                 border: 1px solid {c['border']};
-                border-radius: 8px;
-                text-align: left;
+                border-radius: 12px;
+                font-size: 14px;
+                font-weight: 500;
+                padding: 13px 0px;
+                font-family: {self.FONT};
             }}
             QPushButton:hover {{
                 background: {c['hover']};
-                border-color: {c['border_hover']};
+                border-color: {c['text_secondary']};
             }}
-        """)
+        """
 
-        # Layout for the button content
-        btn_layout = QHBoxLayout(self.star_btn)
-        btn_layout.setContentsMargins(16, 0, 16, 0)
-        btn_layout.setSpacing(12)
+    # ── UI Setup ──
 
-        # 1. Checkbox Icon
-        self.checkbox_label = QLabel()
-        self.checkbox_label.setFixedSize(20, 20)
-        self.checkbox_label.setStyleSheet("background: transparent; border: none;")
-        self.checkbox_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-
-        # SVG for empty checkbox
-        empty_checkbox_svg = f"""<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="2" y="2" width="20" height="20" rx="5" stroke="{c['text']}" stroke-width="2"/>
-        </svg>"""
-        self.set_icon_from_svg(self.checkbox_label, empty_checkbox_svg)
-        btn_layout.addWidget(self.checkbox_label)
-
-        # 2. Text
-        self.star_text = QLabel("Star on GitHub")
-        self.star_text.setStyleSheet(f"color: {c['text']}; font-size: 15px; font-weight: 500; border: none; background: transparent;")
-        self.star_text.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        btn_layout.addWidget(self.star_text)
-
-        # 3. Spacer to push arrow to the right
-        btn_layout.addStretch()
-
-        # 4. Arrow Icon
-        self.arrow_label = QLabel()
-        self.arrow_label.setFixedSize(20, 20)
-        self.arrow_label.setStyleSheet("background: transparent; border: none;")
-        self.arrow_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-
-        # SVG for external link arrow
-        arrow_svg = f"""<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{c['text_secondary']}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="7" y1="17" x2="17" y2="7"></line>
-            <polyline points="7 7 17 7 17 17"></polyline>
-        </svg>"""
-        self.set_icon_from_svg(self.arrow_label, arrow_svg)
-        btn_layout.addWidget(self.arrow_label)
-
-        self.star_btn.clicked.connect(self.on_star_clicked)
-        layout.addWidget(self.star_btn)
-
-        # Gap before Next button (16px)
-        layout.addSpacing(16)
-
-        # Container for Next button and skip link
-        bottom_container = QWidget()
-        bottom_layout = QVBoxLayout(bottom_container)
-        bottom_layout.setContentsMargins(0, 0, 0, 0)
-        bottom_layout.setSpacing(8)
-
-        # BIG NEXT BUTTON - Grayed out "locked" state
-        self.continue_btn = QPushButton("Next →")
-        self.continue_btn.setCursor(QCursor(Qt.CursorShape.ForbiddenCursor))
-        self.continue_btn.setEnabled(False)
-        self.continue_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {c['surface']};
-                color: {c['text_disabled']};
-                border: 1px solid {c['border']};
-                border-radius: 8px;
-                font-size: 16px;
-                font-weight: 600;
-                padding: 16px;
-            }}
-        """)
-        self.continue_btn.clicked.connect(self.on_continue_clicked)
-        bottom_layout.addWidget(self.continue_btn)
-
-        # Skip link - aligned to the right
-        skip_container = QWidget()
-        skip_layout = QHBoxLayout(skip_container)
-        skip_layout.setContentsMargins(0, 0, 0, 0)
-        skip_layout.addStretch()
-        
-        self.skip_link = QLabel("Continue with limited access")
-        self.skip_link.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.skip_link.setStyleSheet(f"""
-            QLabel {{
-                color: {c['text_secondary']};
-                font-size: 10px;
-                background: transparent;
-                border: none;
-            }}
-            QLabel:hover {{
-                color: {c['text']};
-            }}
-        """)
-        
-        # Make it clickable
-        def skip_clicked(event):
-            try:
-                if event.button() == Qt.MouseButton.LeftButton:
-                    self.skip_onboarding()
-            except AttributeError:
-                # PyQt5 fallback
-                if event.button() == Qt.LeftButton:
-                    self.skip_onboarding()
-        self.skip_link.mousePressEvent = skip_clicked
-        skip_layout.addWidget(self.skip_link)
-
-        bottom_layout.addWidget(skip_container)
-        layout.addWidget(bottom_container)
-
-        outer_layout.addWidget(container, 0, Qt.AlignmentFlag.AlignHCenter)
-        outer_layout.addStretch(1)
-        self.stacked_widget.addWidget(page)
-
-    def go_to_page2(self):
-        """Navigate to page 2"""
-        self.stacked_widget.setCurrentIndex(1)
-
-    def skip_onboarding(self):
-        """Skip the onboarding and continue with limited access"""
-        self.complete_onboarding()
-
-    def complete_onboarding(self):
-        """Complete onboarding and show the panel"""
-        # Save config - ensure it's properly saved
-        try:
-            config = mw.addonManager.getConfig(ADDON_NAME) or {}
-            config["onboarding_completed"] = True
-            mw.addonManager.writeConfig(ADDON_NAME, config)
-            
-            # Track onboarding completion in analytics
-            from .analytics import track_onboarding_completed
-            track_onboarding_completed()
-            
-            # Verify it was saved
-            saved_config = mw.addonManager.getConfig(ADDON_NAME) or {}
-            if saved_config.get("onboarding_completed"):
-                print(f"OpenEvidence: Onboarding completed successfully, config saved")
-            else:
-                print(f"OpenEvidence: WARNING - Config may not have saved correctly")
-        except Exception as e:
-            print(f"OpenEvidence: Error saving onboarding config: {e}")
-
-        # Small delay to ensure config is written, then replace widget
-        QTimer.singleShot(100, self._replace_with_panel)
-
-    def _replace_with_panel(self):
-        """Replace onboarding widget with actual panel"""
-        from . import dock_widget
-        if dock_widget:
-            panel = OpenEvidencePanel()
-            dock_widget.setWidget(panel)
-
-            # Show tutorial after a short delay
-            from .tutorial import start_tutorial
-            QTimer.singleShot(500, start_tutorial)
-
-    def on_star_clicked(self):
-        if not self.step_completed:
-            webbrowser.open("https://github.com/Lukeyp43/OpenEvidence-AI")
-
-            # Disable button to prevent multiple clicks, but keep it looking active
-            self.star_btn.setEnabled(False)
-
-            # Wait 4 seconds before showing success state
-            QTimer.singleShot(4000, self.finalize_onboarding_step)
-
-    def finalize_onboarding_step(self):
+    def _setup_ui(self):
         c = ThemeManager.get_palette()
-        
-        if not self.step_completed:
-            self.step_completed = True
 
-            # Update Star Button to checked state
-            # Re-enable button but cursor changes
-            self.star_btn.setEnabled(True)
-            self.star_btn.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
-            # Remove hover effect by setting same background
-            self.star_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: {c['surface']};
-                    border: 1px solid {c['accent']};
-                    border-radius: 8px;
-                    text-align: left;
-                }}
-            """)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-            # Update icons/text for checked state
+        # The card
+        self.card = QWidget()
+        self.card.setFixedSize(540, 500)
+        self.card.setObjectName("obCard")
+        self.card.setStyleSheet(f"""
+            QWidget#obCard {{
+                background: {c['background']};
+                border: 1px solid {c['border']};
+                border-radius: 20px;
+            }}
+        """)
 
-            # 1. Checkbox becomes filled blue square with checkmark
-            filled_check_svg = f"""<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="2" y="2" width="20" height="20" rx="5" fill="{c['accent']}"/>
-                <polyline points="16 9 10 15 7 12" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>"""
-            self.set_icon_from_svg(self.checkbox_label, filled_check_svg)
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(60)
+        shadow.setColor(QColor(0, 0, 0, 160))
+        shadow.setOffset(0, 12)
+        self.card.setGraphicsEffect(shadow)
 
-            # Update Continue Button to UNLOCKED state (Bright Blue)
-            self.continue_btn.setEnabled(True)
-            self.continue_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            self.continue_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: {c['accent']};
-                    color: #FFFFFF;
-                    border: none;
-                    border-radius: 8px;
-                    font-size: 16px;
-                    font-weight: 600;
-                    padding: 16px;
-                }}
-                QPushButton:hover {{
-                    background: {c['accent_hover']};
-                }}
-            """)
+        card_layout = QVBoxLayout(self.card)
+        card_layout.setContentsMargins(0, 0, 0, 0)
 
-    def on_continue_clicked(self):
-        """Continue after starring (only enabled after star is clicked)"""
-        if self.continue_btn.isEnabled():
-            self.complete_onboarding()
+        self.stacked = QStackedWidget()
+        card_layout.addWidget(self.stacked)
+
+        self._create_slide_1()
+        self._create_slide_2()
+        self._create_slide_3()
+        self.stacked.setCurrentIndex(0)
+
+        outer.addWidget(self.card)
+
+    def _make_dots(self, active_idx):
+        c = ThemeManager.get_palette()
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(10)
+        h.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        for i in range(3):
+            dot = QLabel()
+            if i == active_idx:
+                dot.setFixedSize(24, 6)
+                dot.setStyleSheet(f"background: {c['accent']}; border-radius: 3px;")
+            else:
+                dot.setFixedSize(6, 6)
+                dot.setStyleSheet(f"background: {c['border']}; border-radius: 3px;")
+            h.addWidget(dot)
+        return w
+
+    def _make_gif(self, gif_name, c):
+        gif_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), gif_name)
+        if not os.path.exists(gif_path):
+            return None
+        try:
+            from aqt.qt import QMovie
+        except ImportError:
+            try:
+                from PyQt6.QtGui import QMovie
+            except ImportError:
+                from PyQt5.QtGui import QMovie
+        lbl = QLabel()
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet(f"border: 1px solid {c['border']}; border-radius: 12px; background: {c['surface']};")
+        lbl.setFixedHeight(220)
+        movie = QMovie(gif_path)
+        lbl.setMovie(movie)
+        lbl.setScaledContents(True)
+        movie.start()
+        lbl._movie = movie
+        return lbl
+
+    def _make_keycap(self, text, c):
+        """Render a keyboard shortcut as a styled inline keycap."""
+        lbl = QLabel(text)
+        lbl.setStyleSheet(f"""
+            background: {c['surface']};
+            color: {c['text']};
+            border: 1px solid {c['border']};
+            border-radius: 6px;
+            padding: 4px 10px;
+            font-size: 13px;
+            font-weight: 600;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+        """)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        return lbl
+
+    def _shortcut_row(self, key_text, desc_text, c):
+        """Build a row: [keycap] description"""
+        row = QWidget()
+        row.setStyleSheet("background: transparent;")
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(14)
+        rl.addStretch()
+        rl.addWidget(self._make_keycap(key_text, c))
+        desc = QLabel(desc_text)
+        desc.setStyleSheet(f"color: {c['text_secondary']}; font-size: 14px; font-weight: 400; background: transparent; font-family: {self.FONT};")
+        rl.addWidget(desc)
+        rl.addStretch()
+        return row
+
+    # ── Slides ──
+
+    def _create_slide_1(self):
+        c = ThemeManager.get_palette()
+        mod = "\u2318" if self.is_mac else "Ctrl"
+        mod_word = "Cmd" if self.is_mac else "Ctrl"
+
+        page = QWidget()
+        page.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(44, 36, 44, 28)
+        lay.setSpacing(0)
+
+        # Step label
+        step = QLabel("STEP 1 OF 3")
+        step.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        step.setStyleSheet(f"color: {c['accent']}; font-size: 11px; font-weight: 700; letter-spacing: 2px; background: transparent; font-family: {self.FONT};")
+        lay.addWidget(step)
+        lay.addSpacing(10)
+
+        title = QLabel("Quick Actions")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet(f"color: {c['text']}; font-size: 28px; font-weight: 700; background: transparent; font-family: {self.FONT};")
+        lay.addWidget(title)
+        lay.addSpacing(8)
+
+        sub = QLabel(f"Hold {mod_word} and highlight text on any card")
+        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub.setWordWrap(True)
+        sub.setStyleSheet(f"color: {c['text_secondary']}; font-size: 14px; background: transparent; font-family: {self.FONT};")
+        lay.addWidget(sub)
+        lay.addSpacing(20)
+
+        gif = self._make_gif("onboarding_1.gif", c)
+        if gif:
+            lay.addWidget(gif)
+            lay.addSpacing(20)
+
+        lay.addWidget(self._shortcut_row(f"{mod}+F", "Add selected text to chat", c))
+        lay.addSpacing(8)
+        lay.addWidget(self._shortcut_row(f"{mod}+R", "Ask a question about it", c))
+
+        lay.addStretch()
+
+        btn = QPushButton("Continue")
+        btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn.setStyleSheet(self._primary_btn(c))
+        btn.clicked.connect(lambda: self.stacked.setCurrentIndex(1))
+        lay.addWidget(btn)
+        lay.addSpacing(16)
+        lay.addWidget(self._make_dots(0))
+
+        self.stacked.addWidget(page)
+
+    def _create_slide_2(self):
+        c = ThemeManager.get_palette()
+
+        page = QWidget()
+        page.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(44, 36, 44, 28)
+        lay.setSpacing(0)
+
+        step = QLabel("STEP 2 OF 3")
+        step.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        step.setStyleSheet(f"color: {c['accent']}; font-size: 11px; font-weight: 700; letter-spacing: 2px; background: transparent; font-family: {self.FONT};")
+        lay.addWidget(step)
+        lay.addSpacing(10)
+
+        title = QLabel("Customize Your Setup")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet(f"color: {c['text']}; font-size: 28px; font-weight: 700; background: transparent; font-family: {self.FONT};")
+        lay.addWidget(title)
+        lay.addSpacing(8)
+
+        sub = QLabel("Click the gear icon to adjust shortcuts and templates")
+        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub.setWordWrap(True)
+        sub.setStyleSheet(f"color: {c['text_secondary']}; font-size: 14px; background: transparent; font-family: {self.FONT};")
+        lay.addWidget(sub)
+        lay.addSpacing(20)
+
+        gif = self._make_gif("onboarding_2.gif", c)
+        if gif:
+            lay.addWidget(gif)
+            lay.addSpacing(20)
+
+        lay.addWidget(self._shortcut_row("Ctrl+Shift+S", "Explain the current card", c))
+
+        lay.addStretch()
+
+        btn = QPushButton("Continue")
+        btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn.setStyleSheet(self._primary_btn(c))
+        btn.clicked.connect(lambda: self.stacked.setCurrentIndex(2))
+        lay.addWidget(btn)
+        lay.addSpacing(16)
+        lay.addWidget(self._make_dots(1))
+
+        self.stacked.addWidget(page)
+
+    def _create_slide_3(self):
+        c = ThemeManager.get_palette()
+
+        page = QWidget()
+        page.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(44, 36, 44, 28)
+        lay.setSpacing(0)
+
+        step = QLabel("STEP 3 OF 3")
+        step.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        step.setStyleSheet(f"color: {c['accent']}; font-size: 11px; font-weight: 700; letter-spacing: 2px; background: transparent; font-family: {self.FONT};")
+        lay.addWidget(step)
+        lay.addSpacing(10)
+
+        title = QLabel("We'd Love Your Feedback")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet(f"color: {c['text']}; font-size: 28px; font-weight: 700; background: transparent; font-family: {self.FONT};")
+        lay.addWidget(title)
+        lay.addSpacing(8)
+
+        sub = QLabel("Found a bug or have an idea?\nLet us know \u2014 it helps way more than a bad review!")
+        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub.setWordWrap(True)
+        sub.setStyleSheet(f"color: {c['text_secondary']}; font-size: 14px; background: transparent; font-family: {self.FONT};")
+        lay.addWidget(sub)
+
+        lay.addSpacing(28)
+
+        feature_btn = QPushButton("\U0001f4a1  Request a Feature")
+        feature_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        feature_btn.setStyleSheet(self._ghost_btn(c))
+        feature_btn.clicked.connect(lambda: webbrowser.open("https://github.com/Lukeyp43/AI-Side-Panel/issues/new?labels=feature%20request"))
+        lay.addWidget(feature_btn)
+        lay.addSpacing(10)
+
+        bug_btn = QPushButton("\U0001f41b  Report a Bug")
+        bug_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        bug_btn.setStyleSheet(self._ghost_btn(c))
+        bug_btn.clicked.connect(lambda: webbrowser.open("https://github.com/Lukeyp43/AI-Side-Panel/issues/new?labels=bug"))
+        lay.addWidget(bug_btn)
+
+        lay.addStretch()
+
+        start_btn = QPushButton("Get Started \u2192")
+        start_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        start_btn.setStyleSheet(self._primary_btn(c))
+        start_btn.clicked.connect(self._complete)
+        lay.addWidget(start_btn)
+        lay.addSpacing(16)
+        lay.addWidget(self._make_dots(2))
+
+        self.stacked.addWidget(page)
+
+    # ── Drawing & Animation ──
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, self._backdrop_opacity))
+        painter.end()
+        super().paintEvent(event)
+
+    def show_animated(self):
+        """Animate the dialog: fade backdrop + slide card up."""
+        self._sync_geometry()
+        self.show()
+        self.raise_()
+
+        # Fade in backdrop
+        self._backdrop_opacity = 0
+        self._fade_timer = QTimer()
+        def _fade_step():
+            self._backdrop_opacity = min(self._backdrop_opacity + 8, 120)
+            self.update()
+            if self._backdrop_opacity >= 120:
+                self._fade_timer.stop()
+        self._fade_timer.timeout.connect(_fade_step)
+        self._fade_timer.start(16)
+
+        # Slide card up
+        try:
+            from PyQt6.QtCore import QPropertyAnimation, QRect, QEasingCurve
+        except ImportError:
+            from PyQt5.QtCore import QPropertyAnimation, QRect, QEasingCurve
+
+        end_rect = self.card.geometry()
+        start_rect = QRect(end_rect.x(), end_rect.y() + 60, end_rect.width(), end_rect.height())
+        self.card.setGeometry(start_rect)
+
+        self._slide_anim = QPropertyAnimation(self.card, b"geometry")
+        self._slide_anim.setDuration(450)
+        self._slide_anim.setStartValue(start_rect)
+        self._slide_anim.setEndValue(end_rect)
+        self._slide_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._slide_anim.start()
+
+    def _sync_geometry(self):
+        if mw and mw.isVisible():
+            self.setGeometry(mw.rect())
+            self.move(mw.pos())
+
+    def _complete(self):
+        self.hide()
+        self.deleteLater()

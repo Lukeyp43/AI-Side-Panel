@@ -1,12 +1,12 @@
 {
     "referral_threshold": 2,
     "referral_days_threshold": 3,
-    "review_days_threshold": 8,
-    "review_message_threshold": 3,
+    "review_days_threshold": 3,
+    "review_message_threshold": 5,
     "width": 500,
     "height_percentage": 0.9,
     "onboarding_completed": false,
-    "tutorial_completed": false,
+    "book_icon_tutorial_done": false,
     "analytics_endpoint": "https://ysabnlraqldhikuoilcs.supabase.co/functions/v1/ai-panel-analytics",
     "keybindings": [
         {

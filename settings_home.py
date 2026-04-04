@@ -95,28 +95,7 @@ class SettingsHomeView(QWidget):
         footer_wrapper_layout.setContentsMargins(0, 24, 0, 15)
         footer_wrapper_layout.setSpacing(12)
 
-        # Row 1: Tutorial link (centered, on its own line)
-        tutorial_row = QWidget()
-        tutorial_row.setStyleSheet("background: transparent;")
-        tutorial_row_layout = QHBoxLayout(tutorial_row)
-        tutorial_row_layout.setContentsMargins(0, 0, 0, 0)
-        tutorial_row_layout.setSpacing(0)
-        tutorial_row_layout.addStretch()
-
-        tutorial_btn = self.create_footer_link(
-            text="How to Use This Add-on",
-            icon_svg=f"""<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{c['text_secondary']}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-                <path d="M12 17h.01"/>
-            </svg>""",
-            on_click=self.restart_tutorial
-        )
-        tutorial_row_layout.addWidget(tutorial_btn)
-        tutorial_row_layout.addStretch()
-        footer_wrapper_layout.addWidget(tutorial_row)
-
-        # Row 2: Request Feature | Report Bug (centered together)
+        # Row 1: Request Feature | Report Bug (centered together)
         feedback_row = QWidget()
         feedback_row.setStyleSheet("background: transparent;")
         feedback_row_layout = QHBoxLayout(feedback_row)
@@ -331,34 +310,11 @@ class SettingsHomeView(QWidget):
         """Navigate to Templates view"""
         if self.parent_panel and hasattr(self.parent_panel, 'show_templates_view'):
             self.parent_panel.show_templates_view()
-            # Notify tutorial
-            try:
-                from .tutorial import tutorial_event
-                tutorial_event("templates_opened")
-            except:
-                pass
 
     def open_quick_actions(self):
         """Navigate to Quick Actions view"""
         if self.parent_panel and hasattr(self.parent_panel, 'show_quick_actions_view'):
             self.parent_panel.show_quick_actions_view()
-            # Notify tutorial
-            try:
-                from .tutorial import tutorial_event
-                tutorial_event("quick_actions_opened")
-            except:
-                pass
-
-    def restart_tutorial(self):
-        """Restart the tutorial from the beginning"""
-        try:
-            from .tutorial import restart_tutorial
-            # Go back to the main web view first
-            if self.parent_panel and hasattr(self.parent_panel, 'show_web_view'):
-                self.parent_panel.show_web_view()
-            restart_tutorial()
-        except Exception as e:
-            print(f"OpenEvidence: Error restarting tutorial: {e}")
 
     def request_feature(self):
         """Open feature request URL"""

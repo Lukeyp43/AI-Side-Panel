@@ -429,9 +429,3 @@ class SettingsListView(QWidget):
         """Edit a keybinding"""
         if self.parent_panel and hasattr(self.parent_panel, 'show_editor_view'):
             self.parent_panel.show_editor_view(self.keybindings[index].copy(), index)
-            # Notify tutorial
-            try:
-                from .tutorial import tutorial_event
-                tutorial_event("template_edit_opened")
-            except:
-                pass

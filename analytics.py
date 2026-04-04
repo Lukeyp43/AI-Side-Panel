@@ -334,6 +334,12 @@ def send_analytics_background():
                 analytics["user_id"] = str(uuid.uuid4())
                 save_analytics_data(analytics)
 
+            # Sync onboarding_completed from config (source of truth) to analytics
+            config_onboarding = config.get("onboarding_completed", False)
+            if config_onboarding and not analytics.get("onboarding_completed", False):
+                analytics["onboarding_completed"] = True
+                save_analytics_data(analytics)
+
             # Note: Server calculates engagement metrics from daily_usage
             # (total_sessions, sessions_with_messages, etc.)
             payload = {

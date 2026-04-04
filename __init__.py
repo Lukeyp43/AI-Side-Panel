@@ -3,22 +3,198 @@ import aqt
 from aqt import mw, gui_hooks
 from aqt.qt import *
 
-from .panel import CustomTitleBar, OpenEvidencePanel, OnboardingWidget
+from .panel import CustomTitleBar, OpenEvidencePanel, OnboardingDialog
 from .utils import clean_html_text
 from .reviewer_highlight import setup_highlight_hooks
 from .analytics import init_analytics, try_send_daily_analytics, track_add_to_chat, track_ask_question, track_anki_open
-
-from .analytics import init_analytics, try_send_daily_analytics, track_add_to_chat, track_ask_question, track_anki_open
 from .utils import ADDON_NAME
+
+try:
+    from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGraphicsDropShadowEffect
+    from PyQt6.QtCore import Qt, QTimer, QEvent, QPropertyAnimation, QRect, QEasingCurve
+    from PyQt6.QtGui import QColor, QFont, QPainter
+except ImportError:
+    from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGraphicsDropShadowEffect
+    from PyQt5.QtCore import Qt, QTimer, QEvent, QPropertyAnimation, QRect, QEasingCurve
+    from PyQt5.QtGui import QColor, QFont, QPainter
 
 # Global references
 dock_widget = None
+_book_icon_overlay = None
 current_card_question = ""
 current_card_answer = ""
 is_showing_answer = False
 
 # Platform detection
 IS_MAC = sys.platform == "darwin"
+
+
+class BookIconOverlay(QWidget):
+    """Floating tooltip that points at the book icon in the toolbar.
+    Uses JS to find the exact pixel position. Theme-aware.
+    On dismiss, triggers the onboarding dialog after a short delay."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._positioned = False
+        self._setup_ui()
+
+        self._poll_timer = QTimer()
+        self._poll_timer.timeout.connect(self._check_panel_visible)
+        self._poll_timer.start(250)
+
+        if parent:
+            parent.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if watched == self.parent() and event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
+            QTimer.singleShot(50, self._locate_icon)
+        return super().eventFilter(watched, event)
+
+    def _setup_ui(self):
+        from .theme_manager import ThemeManager
+        c = ThemeManager.get_palette()
+        is_dark = ThemeManager.is_night_mode()
+
+        bg = "#1c1c1e" if is_dark else "#ffffff"
+        text_primary = "#ffffff" if is_dark else "#1c1c1e"
+        text_secondary = "rgba(255,255,255,0.6)" if is_dark else "rgba(0,0,0,0.5)"
+        border = "rgba(255,255,255,0.1)" if is_dark else "rgba(0,0,0,0.08)"
+        shadow_color = QColor(0, 0, 0, 180) if is_dark else QColor(0, 0, 0, 60)
+        arrow_color = bg
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 0, 12, 12)
+        layout.setSpacing(0)
+
+        # Triangle arrow pointing up
+        arrow = QLabel("\u25B2")
+        arrow.setFixedHeight(14)
+        arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        arrow.setStyleSheet(f"color: {bg}; font-size: 16px; background: transparent;")
+        layout.addWidget(arrow)
+
+        # Card
+        card = QWidget()
+        card.setObjectName("bookTooltip")
+        card.setStyleSheet(f"""
+            QWidget#bookTooltip {{
+                background: {bg};
+                border: 1px solid {border};
+                border-radius: 14px;
+            }}
+        """)
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(20, 18, 20, 18)
+        cl.setSpacing(6)
+
+        title = QLabel("Click the book icon")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet(f"color: {text_primary}; font-size: 14px; font-weight: 600; background: transparent; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;")
+        cl.addWidget(title)
+
+        sub = QLabel("to open your AI panel")
+        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub.setStyleSheet(f"color: {text_secondary}; font-size: 13px; font-weight: 400; background: transparent; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;")
+        cl.addWidget(sub)
+
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(36)
+        shadow.setColor(shadow_color)
+        shadow.setOffset(0, 8)
+        card.setGraphicsEffect(shadow)
+
+        layout.addWidget(card)
+        self.setFixedWidth(220)
+        self.adjustSize()
+
+    def show_near_toolbar(self):
+        self._locate_icon()
+
+    def _locate_icon(self):
+        if not mw or not mw.toolbar or not mw.toolbar.web:
+            return
+        js = """
+        (function() {
+            var link = document.querySelector('a[title="AI Side Panel"]');
+            if (link) {
+                var rect = link.getBoundingClientRect();
+                return JSON.stringify({x: rect.left, y: rect.top, w: rect.width, h: rect.height});
+            }
+            return null;
+        })();
+        """
+        mw.toolbar.web.page().runJavaScript(js, self._on_icon_pos)
+
+    def _on_icon_pos(self, result):
+        import json
+        if not result:
+            QTimer.singleShot(500, self._locate_icon)
+            return
+        try:
+            rect = json.loads(result)
+        except Exception:
+            return
+
+        toolbar_web = mw.toolbar.web
+        icon_center_x = rect["x"] + rect["w"] / 2
+        icon_bottom_y = rect["y"] + rect["h"]
+
+        try:
+            from PyQt6.QtCore import QPointF
+            global_pos = toolbar_web.mapToGlobal(QPointF(icon_center_x, icon_bottom_y)).toPoint()
+        except (ImportError, TypeError):
+            from PyQt5.QtCore import QPoint
+            global_pos = toolbar_web.mapToGlobal(QPoint(int(icon_center_x), int(icon_bottom_y)))
+
+        x = global_pos.x() - self.width() // 2
+        y = global_pos.y() + 4
+        self.move(x, y)
+
+        if not self._positioned:
+            self._positioned = True
+            self.show()
+            self.raise_()
+
+    def _check_panel_visible(self):
+        global dock_widget
+        if dock_widget and dock_widget.isVisible():
+            self._poll_timer.stop()
+            self._dismiss()
+
+    def _dismiss(self):
+        try:
+            config = mw.addonManager.getConfig(ADDON_NAME) or {}
+            config["book_icon_tutorial_done"] = True
+            mw.addonManager.writeConfig(ADDON_NAME, config)
+        except Exception as e:
+            print(f"AI Panel: Error saving book icon flag: {e}")
+        self.hide()
+        self.deleteLater()
+
+        # After a short delay, show the onboarding dialog
+        QTimer.singleShot(600, _show_onboarding_dialog)
+
+
+def _show_onboarding_dialog():
+    """Show the centered onboarding dialog over the main window."""
+    config = mw.addonManager.getConfig(ADDON_NAME) or {}
+    if config.get("onboarding_completed", False):
+        return
+    # Mark onboarding done now (panel is already loaded)
+    config["onboarding_completed"] = True
+    mw.addonManager.writeConfig(ADDON_NAME, config)
+    try:
+        from .analytics import track_onboarding_completed
+        track_onboarding_completed()
+    except Exception:
+        pass
+
+    dialog = OnboardingDialog(mw)
+    dialog.show_animated()
+    mw._onboarding_dialog = dialog  # prevent GC
 
 
 def ensure_platform_defaults():
@@ -28,11 +204,11 @@ def ensure_platform_defaults():
     On Windows/Linux: Control + F/R
     """
     config = mw.addonManager.getConfig(ADDON_NAME) or {}
-    
+
     # Check if quick_actions needs platform-specific defaults
     quick_actions = config.get("quick_actions", {})
     needs_update = False
-    
+
     # If no quick_actions config exists, or it's using the wrong modifier for this platform
     if not quick_actions:
         needs_update = True
@@ -45,7 +221,7 @@ def ensure_platform_defaults():
         elif not IS_MAC and "Meta" in add_keys and "Control" not in add_keys:
             # Windows/Linux but using Meta - switch to Control
             needs_update = True
-    
+
     if needs_update:
         if IS_MAC:
             config["quick_actions"] = {
@@ -70,24 +246,8 @@ def create_dock_widget():
         dock_widget = QDockWidget("AI Side Panel", mw)
         dock_widget.setObjectName("AIPanelDock")
 
-        # Check if onboarding is complete
-        config = mw.addonManager.getConfig(ADDON_NAME) or {}
-        onboarding_complete = config.get("onboarding_completed", False)
-        tutorial_complete = config.get("tutorial_completed", False)
-
-        # Create the appropriate widget
-        if onboarding_complete:
-            panel = OpenEvidencePanel()
-            # The panel will automatically start loading OpenEvidence in the background
-
-            # If onboarding is done but tutorial isn't, start tutorial when panel opens
-            if not tutorial_complete:
-                from aqt.qt import QTimer
-                from .tutorial import start_tutorial
-                QTimer.singleShot(1000, start_tutorial)
-        else:
-            panel = OnboardingWidget()
-
+        # Always create the real panel — onboarding is now a separate dialog
+        panel = OpenEvidencePanel()
         dock_widget.setWidget(panel)
 
         # Create and set custom title bar
@@ -95,6 +255,7 @@ def create_dock_widget():
         dock_widget.setTitleBarWidget(custom_title)
 
         # Get config for width
+        config = mw.addonManager.getConfig(ADDON_NAME) or {}
         panel_width = config.get("width", 500)
 
         # Set initial size
@@ -122,13 +283,6 @@ def toggle_panel():
 
     if dock_widget.isVisible():
         dock_widget.hide()
-
-        # Notify tutorial that panel was closed
-        try:
-            from .tutorial import tutorial_event
-            tutorial_event("panel_closed")
-        except:
-            pass
     else:
         # If the dock is floating, dock it back to the right side
         if dock_widget.isFloating():
@@ -138,45 +292,11 @@ def toggle_panel():
         dock_widget.show()
         dock_widget.raise_()
 
-        # Notify tutorial that panel was opened
-        try:
-            from .tutorial import tutorial_event
-            tutorial_event("panel_opened")
-        except:
-            pass
-
-    # Notify tutorial that panel was toggled (fires on both open and close)
-    try:
-        from .tutorial import tutorial_event
-        tutorial_event("panel_toggled")
-    except:
-        pass
-
 
 def on_webview_did_receive_js_message(handled, message, context):
     """Handle pycmd messages from toolbar and highlight bubble"""
     if message == "openevidence":
         toggle_panel()
-        return (True, None)
-
-    # Handle tutorial event messages
-    if message.startswith("tutorial:"):
-        event_name = message.replace("tutorial:", "", 1)
-        try:
-            from .tutorial import tutorial_event
-            tutorial_event(event_name)
-        except:
-            pass
-        return (True, None)
-
-    # Handle tutorial events from highlight bubble
-    if message.startswith("openevidence:tutorial_event:"):
-        event_name = message.replace("openevidence:tutorial_event:", "", 1)
-        try:
-            from .tutorial import tutorial_event
-            tutorial_event(event_name)
-        except:
-            pass
         return (True, None)
 
     # Handle highlight bubble messages
@@ -189,14 +309,6 @@ def on_webview_did_receive_js_message(handled, message, context):
         except:
             pass
         handle_add_context(selected_text)
-
-        # Notify tutorial that text was highlighted
-        try:
-            from .tutorial import tutorial_event
-            tutorial_event("text_highlighted")
-        except:
-            pass
-
         return (True, None)
 
     if message.startswith("openevidence:ask_query:"):
@@ -209,13 +321,6 @@ def on_webview_did_receive_js_message(handled, message, context):
                 query = unquote(parts[0])
                 context = unquote(parts[1])
                 handle_ask_query(query, context)
-                
-                # Notify tutorial that a question was submitted
-                try:
-                    from .tutorial import tutorial_event
-                    tutorial_event("ask_question_submitted")
-                except:
-                    pass
         except:
             pass
         return (True, None)
@@ -234,11 +339,11 @@ def store_current_card_text(card):
 
         # Clean the question
         current_card_question = clean_html_text(question_html)
-        
+
         # For answer, we need to extract just the back content
         # In Anki, answer_html includes the question, so we need to get only the back part
         full_answer_text = clean_html_text(answer_html)
-        
+
         # Remove the question portion from the answer to get just the back
         # This handles cases where the answer includes the question
         if current_card_question and current_card_question in full_answer_text:
@@ -296,11 +401,11 @@ def handle_add_context(selected_text):
         (function() {
             var newText = %s;
             var searchInput = null;
-            
+
             // First, check for follow-up input (indicates active conversation)
             // Look for input with "follow-up" in placeholder
             var followUpInput = document.querySelector('input[placeholder*="follow-up"], input[placeholder*="Follow-up"], textarea[placeholder*="follow-up"]');
-            
+
             if (followUpInput) {
                 // Active conversation - use follow-up input
                 searchInput = followUpInput;
@@ -310,7 +415,7 @@ def handle_add_context(selected_text):
                 searchInput = document.querySelector('input[placeholder*="medical"], input[placeholder*="question"], textarea, input[type="text"]');
                 console.log('Anki: No follow-up input, using main search');
             }
-            
+
             if (searchInput) {
                 var existingText = searchInput.value.trim();
 
@@ -339,13 +444,6 @@ def handle_add_context(selected_text):
         """ % repr(selected_text)
 
         panel.web.page().runJavaScript(js_code)
-
-        # Notify tutorial that add to chat was used
-        try:
-            from .tutorial import tutorial_event
-            tutorial_event("add_to_chat")
-        except:
-            pass
 
 
 def handle_ask_query(query, context):
@@ -449,7 +547,7 @@ def add_toolbar_button(links, toolbar):
 def preload_panel():
     """Preload panel after a short delay to avoid competing with Anki startup"""
     print(f"{ADDON_NAME}: Starting preload_panel...")
-    
+
     # Initialize analytics on first run (returns True if fresh install)
     is_fresh_install = False
     try:
@@ -468,7 +566,7 @@ def preload_panel():
         try_send_daily_analytics()
     except Exception as e:
         print(f"{ADDON_NAME}: Error in try_send_daily_analytics: {e}")
-    
+
     # Track that Anki was opened (skip if fresh install, since init_analytics already counted it)
     if not is_fresh_install:
         try:
@@ -489,6 +587,16 @@ def preload_panel():
     from aqt.qt import QTimer
     QTimer.singleShot(500, create_dock_widget)
 
+    # On first install, show the book icon overlay to guide user
+    if is_fresh_install:
+        def _show_book_overlay():
+            global _book_icon_overlay
+            config = mw.addonManager.getConfig(ADDON_NAME) or {}
+            if not config.get("book_icon_tutorial_done", False):
+                _book_icon_overlay = BookIconOverlay(mw)
+                _book_icon_overlay.show_near_toolbar()
+        QTimer.singleShot(2000, _show_book_overlay)
+
 
 # Global timer for periodic analytics check
 _analytics_timer = None
@@ -497,22 +605,11 @@ def start_periodic_analytics_check():
     """Start a timer that checks every hour if we need to send analytics."""
     global _analytics_timer
     from aqt.qt import QTimer
-    
+
     _analytics_timer = QTimer()
     _analytics_timer.timeout.connect(try_send_daily_analytics)
     # Check every hour (3600000 ms) - very lightweight, just a date comparison
     _analytics_timer.start(3600000)
-
-
-def on_answer_shown(card):
-    """Called when answer is shown - store card text and notify tutorial"""
-    store_current_card_text(card)
-    # Notify tutorial that answer was shown
-    try:
-        from .tutorial import tutorial_event
-        tutorial_event("answer_shown")
-    except:
-        pass
 
 
 # Hook registration
@@ -521,6 +618,6 @@ gui_hooks.top_toolbar_did_init_links.append(add_toolbar_button)
 # Use delayed preloading for better performance
 gui_hooks.main_window_did_init.append(preload_panel)
 gui_hooks.reviewer_did_show_question.append(store_current_card_text)
-gui_hooks.reviewer_did_show_answer.append(on_answer_shown)
+gui_hooks.reviewer_did_show_answer.append(store_current_card_text)
 # Set up highlight bubble hooks for reviewer
 setup_highlight_hooks()
