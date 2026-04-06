@@ -13,14 +13,94 @@ from .theme_manager import ThemeManager
 
 try:
     from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea
-    from PyQt6.QtCore import Qt, QTimer
-    from PyQt6.QtGui import QCursor
+    from PyQt6.QtCore import Qt, QTimer, QRectF, QPropertyAnimation, QEasingCurve, pyqtProperty
+    from PyQt6.QtGui import QCursor, QPainter, QColor
 except ImportError:
     from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea
-    from PyQt5.QtCore import Qt, QTimer
-    from PyQt5.QtGui import QCursor
+    from PyQt5.QtCore import Qt, QTimer, QRectF, QPropertyAnimation, QEasingCurve, pyqtProperty
+    from PyQt5.QtGui import QCursor, QPainter, QColor
 
 from .key_recorder import KeyRecorderMixin
+
+
+class ToggleSwitch(QWidget):
+    """A proper iOS-style toggle switch widget."""
+    def __init__(self, checked=False, on_color="#4A90D9", off_color="#555555", parent=None):
+        super().__init__(parent)
+        self.setFixedSize(44, 24)
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._checked = checked
+        self._on_color = on_color
+        self._off_color = off_color
+        # Knob position: 0.0 = left (off), 1.0 = right (on)
+        self._knob_position = 1.0 if checked else 0.0
+        self._animation = QPropertyAnimation(self, b"knob_position")
+        self._animation.setDuration(150)
+        self._animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._toggled_callbacks = []
+
+    def connect_toggled(self, callback):
+        self._toggled_callbacks.append(callback)
+
+    def isChecked(self):
+        return self._checked
+
+    def setChecked(self, checked):
+        if self._checked == checked:
+            return
+        self._checked = checked
+        self._animate()
+        for cb in self._toggled_callbacks:
+            cb(checked)
+
+    def _get_knob_position(self):
+        return self._knob_position
+
+    def _set_knob_position(self, pos):
+        self._knob_position = pos
+        self.update()
+
+    knob_position = pyqtProperty(float, _get_knob_position, _set_knob_position)
+
+    def _animate(self):
+        self._animation.stop()
+        self._animation.setStartValue(self._knob_position)
+        self._animation.setEndValue(1.0 if self._checked else 0.0)
+        self._animation.start()
+
+    def mousePressEvent(self, event):
+        self._checked = not self._checked
+        self._animate()
+        for cb in self._toggled_callbacks:
+            cb(self._checked)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        w, h = self.width(), self.height()
+        radius = h / 2
+
+        # Track color - interpolate between off and on
+        on = QColor(self._on_color)
+        off = QColor(self._off_color)
+        t = self._knob_position
+        track_color = QColor(
+            int(off.red() + (on.red() - off.red()) * t),
+            int(off.green() + (on.green() - off.green()) * t),
+            int(off.blue() + (on.blue() - off.blue()) * t),
+        )
+        p.setBrush(track_color)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawRoundedRect(QRectF(0, 0, w, h), radius, radius)
+
+        # Knob
+        knob_diameter = h - 4
+        knob_x = 2 + self._knob_position * (w - knob_diameter - 4)
+        knob_y = 2
+        p.setBrush(QColor("#ffffff"))
+        p.drawEllipse(QRectF(knob_x, knob_y, knob_diameter, knob_diameter))
+        p.end()
 
 
 class QuickActionsSettingsView(KeyRecorderMixin, QWidget):
@@ -34,11 +114,12 @@ class QuickActionsSettingsView(KeyRecorderMixin, QWidget):
         self.setup_key_recorder()
 
         # Load current shortcuts from config
-        config = mw.addonManager.getConfig(ADDON_NAME) or {}
-        self.shortcuts = config.get("quick_actions", {
+        self.config = mw.addonManager.getConfig(ADDON_NAME) or {}
+        self.shortcuts = self.config.get("quick_actions", {
             "add_to_chat": {"keys": ["Meta", "F"]},
             "ask_question": {"keys": ["Meta", "R"]}
         })
+        self.highlight_modifier = self.config.get("highlight_modifier", "none")
 
         self.setup_ui()
 
@@ -81,45 +162,106 @@ class QuickActionsSettingsView(KeyRecorderMixin, QWidget):
         desc.setWordWrap(True)
         content_layout.addWidget(desc)
 
-        # Add to Chat shortcut
-        add_to_chat_label = QLabel("Add to Chat")
-        add_to_chat_label.setStyleSheet(f"color: {c['text']}; font-size: 14px; font-weight: bold; margin-top: 12px;")
-        content_layout.addWidget(add_to_chat_label)
+        # Store initial state early (before toggles trigger _check_for_changes)
+        self._initial_state = {
+            'add_to_chat': self.shortcuts["add_to_chat"]["keys"].copy(),
+            'ask_question': self.shortcuts["ask_question"]["keys"].copy(),
+            'explain_enabled': self.config.get('explain_enabled', True),
+            'add_to_chat_enabled': self.config.get('add_to_chat_enabled', True),
+            'ask_question_enabled': self.config.get('ask_question_enabled', True),
+        }
 
-        self.add_to_chat_display = QPushButton()
-        self.add_to_chat_display.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.add_to_chat_display.setFixedHeight(60)
+        # --- Feature toggles ---
+        self.toggles = {}
+
+        def make_toggle_row(key, title, description):
+            row = QWidget()
+            row.setStyleSheet(f"background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 8px;")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(14, 10, 14, 10)
+            row_layout.setSpacing(10)
+
+            left = QVBoxLayout()
+            left.setSpacing(2)
+            t = QLabel(title)
+            t.setStyleSheet(f"color: {c['text']}; font-size: 13px; font-weight: 600; background: transparent; border: none;")
+            d = QLabel(description)
+            d.setStyleSheet(f"color: {c['text_secondary']}; font-size: 11px; background: transparent; border: none;")
+            d.setWordWrap(True)
+            left.addWidget(t)
+            left.addWidget(d)
+            row_layout.addLayout(left, 1)
+
+            toggle = ToggleSwitch(
+                checked=self.config.get(key, True),
+                on_color=c['accent'],
+                off_color=c['border'],
+            )
+            toggle.connect_toggled(lambda checked: self._check_for_changes())
+            self.toggles[key] = toggle
+            row_layout.addWidget(toggle)
+
+            return row
+
+        content_layout.addWidget(make_toggle_row(
+            "explain_enabled", "Explain",
+            "Highlight text to see inline explanation"
+        ))
+        content_layout.addWidget(make_toggle_row(
+            "add_to_chat_enabled", "Add to Chat",
+            "\u2318 Cmd + highlight to send text to panel"
+        ))
+        content_layout.addWidget(make_toggle_row(
+            "ask_question_enabled", "Ask Question",
+            "\u2318 Cmd + highlight to ask about text"
+        ))
+
+        # --- Keyboard Shortcuts ---
+        shortcuts_header = QLabel("Keyboard Shortcuts")
+        shortcuts_header.setStyleSheet(f"color: {c['text']}; font-size: 14px; font-weight: bold; margin-top: 8px;")
+        content_layout.addWidget(shortcuts_header)
+
+        def make_shortcut_row(target_key, title, description):
+            row = QWidget()
+            row.setStyleSheet(f"background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 8px;")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(14, 10, 14, 10)
+            row_layout.setSpacing(10)
+
+            left = QVBoxLayout()
+            left.setSpacing(2)
+            t = QLabel(title)
+            t.setStyleSheet(f"color: {c['text']}; font-size: 13px; font-weight: 600; background: transparent; border: none;")
+            d = QLabel(description)
+            d.setStyleSheet(f"color: {c['text_secondary']}; font-size: 11px; background: transparent; border: none;")
+            d.setWordWrap(True)
+            left.addWidget(t)
+            left.addWidget(d)
+            row_layout.addLayout(left, 1)
+
+            shortcut_btn = QPushButton()
+            shortcut_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            shortcut_btn.setFixedHeight(32)
+            shortcut_btn.setMinimumWidth(80)
+            shortcut_btn.clicked.connect(lambda: self.start_recording(target_key))
+            row_layout.addWidget(shortcut_btn)
+
+            return row, shortcut_btn
+
+        row1, self.add_to_chat_display = make_shortcut_row(
+            "add_to_chat", "Add to Chat", "Tap to change shortcut"
+        )
         self._update_shortcut_display(self.add_to_chat_display, self.shortcuts["add_to_chat"]["keys"])
-        self.add_to_chat_display.clicked.connect(lambda: self.start_recording('add_to_chat'))
-        content_layout.addWidget(self.add_to_chat_display)
+        content_layout.addWidget(row1)
 
-        add_to_chat_desc = QLabel("Directly add highlighted text to AI Side Panel chat")
-        add_to_chat_desc.setStyleSheet(f"color: {c['text_secondary']}; font-size: 11px; margin-bottom: 8px;")
-        content_layout.addWidget(add_to_chat_desc)
-
-        # Ask Question shortcut
-        ask_question_label = QLabel("Ask Question")
-        ask_question_label.setStyleSheet(f"color: {c['text']}; font-size: 14px; font-weight: bold; margin-top: 12px;")
-        content_layout.addWidget(ask_question_label)
-
-        self.ask_question_display = QPushButton()
-        self.ask_question_display.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.ask_question_display.setFixedHeight(60)
+        row2, self.ask_question_display = make_shortcut_row(
+            "ask_question", "Ask Question", "Tap to change shortcut"
+        )
         self._update_shortcut_display(self.ask_question_display, self.shortcuts["ask_question"]["keys"])
-        self.ask_question_display.clicked.connect(lambda: self.start_recording('ask_question'))
-        content_layout.addWidget(self.ask_question_display)
-
-        ask_question_desc = QLabel("Open question input with highlighted text as context")
-        ask_question_desc.setStyleSheet(f"color: {c['text_secondary']}; font-size: 11px; margin-bottom: 8px;")
-        content_layout.addWidget(ask_question_desc)
+        content_layout.addWidget(row2)
 
         content_layout.addStretch()
 
-        # Store initial state to detect changes
-        self._initial_state = {
-            'add_to_chat': self.shortcuts["add_to_chat"]["keys"].copy(),
-            'ask_question': self.shortcuts["ask_question"]["keys"].copy()
-        }
 
         scroll.setWidget(content)
         layout.addWidget(scroll)
@@ -146,23 +288,24 @@ class QuickActionsSettingsView(KeyRecorderMixin, QWidget):
         from .utils import format_keys_verbose
 
         c = ThemeManager.get_palette()
-        
+
         if self.recording_target:
-            # During recording - no hover state to avoid bright blue
+            # During recording
             if keys:
                 display_text = format_keys_verbose(keys)
                 button.setText(display_text)
             else:
-                button.setText("Press any key combination...")
+                button.setText("Press keys...")
 
             button.setStyleSheet(f"""
                 QPushButton {{
-                    background: {c['surface']};
-                    color: {c['accent']};
-                    border: 2px solid {c['accent']};
-                    border-radius: 8px;
-                    font-size: 14px;
-                    font-weight: 500;
+                    background: {c['accent']};
+                    color: #ffffff;
+                    border: none;
+                    border-radius: 6px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    padding: 4px 12px;
                 }}
             """)
         else:
@@ -171,20 +314,21 @@ class QuickActionsSettingsView(KeyRecorderMixin, QWidget):
                 display_text = format_keys_verbose(keys)
                 button.setText(display_text)
             else:
-                button.setText("Click to record shortcut")
+                button.setText("Set shortcut")
 
             button.setStyleSheet(f"""
                 QPushButton {{
-                    background: {c['surface']};
-                    color: {c['text']};
+                    background: {c['background']};
+                    color: {c['text_secondary']};
                     border: 1px solid {c['border']};
-                    border-radius: 8px;
-                    font-size: 14px;
+                    border-radius: 6px;
+                    font-size: 12px;
                     font-weight: 600;
+                    padding: 4px 12px;
                 }}
                 QPushButton:hover {{
                     background: {c['border']};
-                    border-color: {c['text_secondary']};
+                    color: {c['text']};
                 }}
             """)
 
@@ -192,13 +336,11 @@ class QuickActionsSettingsView(KeyRecorderMixin, QWidget):
         """Start recording keys for a specific shortcut"""
         self.recording_target = target
 
-        # Update display to show recording state
         if target == 'add_to_chat':
             self._update_shortcut_display(self.add_to_chat_display, [])
         else:
             self._update_shortcut_display(self.ask_question_display, [])
 
-        # Start the key recorder from mixin
         super().start_recording()
 
     def _update_recording_display(self, keys):
@@ -213,27 +355,28 @@ class QuickActionsSettingsView(KeyRecorderMixin, QWidget):
         if not self.recording_target:
             return
 
-        # Save the recorded keys
         if keys:
             self.shortcuts[self.recording_target]["keys"] = keys
 
-        # Update displays with final keys
         if self.recording_target == 'add_to_chat':
             self._update_shortcut_display(self.add_to_chat_display, self.shortcuts["add_to_chat"]["keys"])
         else:
             self._update_shortcut_display(self.ask_question_display, self.shortcuts["ask_question"]["keys"])
 
         self.recording_target = None
-
-        # Check if changes were made to enable save button
         self._check_for_changes()
 
     def _check_for_changes(self):
         """Detect if any changes were made and enable/disable save button"""
+        if not hasattr(self, 'save_btn'):
+            return
         # Compare current state with initial state
         has_changes = (
             self.shortcuts["add_to_chat"]["keys"] != self._initial_state['add_to_chat'] or
-            self.shortcuts["ask_question"]["keys"] != self._initial_state['ask_question']
+            self.shortcuts["ask_question"]["keys"] != self._initial_state['ask_question'] or
+            self.toggles.get('explain_enabled', None) and self.toggles['explain_enabled'].isChecked() != self._initial_state['explain_enabled'] or
+            self.toggles.get('add_to_chat_enabled', None) and self.toggles['add_to_chat_enabled'].isChecked() != self._initial_state['add_to_chat_enabled'] or
+            self.toggles.get('ask_question_enabled', None) and self.toggles['ask_question_enabled'].isChecked() != self._initial_state['ask_question_enabled']
         )
 
         # Enable/disable save button
@@ -273,6 +416,8 @@ class QuickActionsSettingsView(KeyRecorderMixin, QWidget):
         """Save shortcuts to config"""
         config = mw.addonManager.getConfig(ADDON_NAME)
         config["quick_actions"] = self.shortcuts
+        for key, toggle in self.toggles.items():
+            config[key] = toggle.isChecked()
         mw.addonManager.writeConfig(ADDON_NAME, config)
 
         # Update the JavaScript config in the reviewer immediately
@@ -335,7 +480,10 @@ class QuickActionsSettingsView(KeyRecorderMixin, QWidget):
                 keys: {ask_question_keys},
                 display: "{ask_question_display}"
             }};
-            
+            window.quickActionsConfig.explainEnabled = {str(config.get('explain_enabled', True)).lower()};
+            window.quickActionsConfig.addToChatEnabled = {str(config.get('add_to_chat_enabled', True)).lower()};
+            window.quickActionsConfig.askQuestionEnabled = {str(config.get('ask_question_enabled', True)).lower()};
+
             // If bubble is visible, update the display text in the buttons
             var bubble = document.getElementById('anki-highlight-bubble');
             if (bubble && bubble.style.display !== 'none') {{

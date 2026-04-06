@@ -7,6 +7,10 @@
     "height_percentage": 0.9,
     "onboarding_completed": false,
     "book_icon_tutorial_done": false,
+    "highlight_modifier": "none",
+    "explain_enabled": true,
+    "add_to_chat_enabled": true,
+    "ask_question_enabled": true,
     "analytics_endpoint": "https://ysabnlraqldhikuoilcs.supabase.co/functions/v1/ai-panel-analytics",
     "keybindings": [
         {

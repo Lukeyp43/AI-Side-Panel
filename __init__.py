@@ -299,6 +299,23 @@ def on_webview_did_receive_js_message(handled, message, context):
         toggle_panel()
         return (True, None)
 
+    if message == "ai_generate":
+        from .ai_generate import show_ai_generate_dialog
+        show_ai_generate_dialog()
+        return (True, None)
+
+    if message == "ai_answer":
+        from .ai_create import _handle_ai_answer
+        # Find the active editor
+        if hasattr(mw, 'app'):
+            from aqt.editcurrent import EditCurrent
+            from aqt.addcards import AddCards
+            for widget in mw.app.topLevelWidgets():
+                if isinstance(widget, (AddCards, EditCurrent)) and hasattr(widget, 'editor'):
+                    _handle_ai_answer(widget.editor)
+                    return (True, None)
+        return (True, None)
+
     # Handle highlight bubble messages
     if message.startswith("openevidence:add_context:"):
         # Extract the selected text
@@ -323,6 +340,29 @@ def on_webview_did_receive_js_message(handled, message, context):
                 handle_ask_query(query, context)
         except:
             pass
+        return (True, None)
+
+    # Handle opening a URL in the system browser
+    if message.startswith("openurl:"):
+        url = message.replace("openurl:", "", 1)
+        try:
+            from urllib.parse import unquote
+            url = unquote(url)
+            from aqt.qt import QDesktopServices, QUrl
+            QDesktopServices.openUrl(QUrl(url))
+        except Exception as e:
+            print(f"OpenEvidence: Could not open URL: {e}")
+        return (True, None)
+
+    # Handle inline explain request
+    if message.startswith("openevidence:inline_explain:"):
+        text = message.replace("openevidence:inline_explain:", "", 1)
+        try:
+            from urllib.parse import unquote
+            text = unquote(text)
+        except:
+            pass
+        handle_inline_explain(text)
         return (True, None)
 
     return handled
@@ -528,6 +568,256 @@ def handle_ask_query(query, context):
         panel.web.page().runJavaScript(js_code)
 
 
+def handle_inline_explain(selected_text):
+    """Handle inline explain — query OpenEvidence in hidden panel, extract response."""
+    global dock_widget
+
+    # Ensure panel is created and visible (React needs visible DOM to render)
+    if dock_widget is None:
+        create_dock_widget()
+
+    # Show the panel invisibly — float it off-screen with 0 opacity so the webview
+    # stays active but the user sees nothing
+    if not dock_widget.isVisible():
+        dock_widget.setFloating(True)
+        dock_widget.setWindowOpacity(0)
+        dock_widget.move(-9999, -9999)
+        dock_widget.show()
+
+    panel = dock_widget.widget()
+    if not panel or not hasattr(panel, 'web'):
+        print("AI Panel: inline explain — no panel/web found")
+        return
+
+    if hasattr(panel, 'show_web_view'):
+        panel.show_web_view()
+
+    query = f"Explain this in 2 sentences or less. Do not ask a follow-up question: {selected_text}"
+
+    # Use the exact same injection pattern as handle_ask_query (proven to work)
+    js_code = """
+    (function() {
+        var searchInput = document.querySelector('input[placeholder*="medical"], input[placeholder*="question"], textarea, input[type="text"]');
+        if (searchInput) {
+            var text = %s;
+
+            // Use native setter for React compatibility
+            var nativeSetter = Object.getOwnPropertyDescriptor(
+                searchInput.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
+                'value'
+            ).set;
+            nativeSetter.call(searchInput, text);
+
+            // Dispatch events
+            searchInput.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
+            searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+            // Focus the input
+            searchInput.focus();
+
+            // Try to find and click the submit button after a short delay
+            setTimeout(function() {
+                // Look for common submit button patterns
+                var submitButton = document.querySelector('button[type="submit"]') ||
+                                 document.querySelector('button:has(svg)') ||
+                                 searchInput.closest('form')?.querySelector('button');
+
+                if (submitButton) {
+                    submitButton.click();
+                    console.log('Anki: Inline explain — auto-submitted query');
+                } else {
+                    // Try simulating Enter key press
+                    var enterEvent = new KeyboardEvent('keydown', {
+                        key: 'Enter',
+                        code: 'Enter',
+                        keyCode: 13,
+                        which: 13,
+                        bubbles: true,
+                        cancelable: true
+                    });
+                    searchInput.dispatchEvent(enterEvent);
+                    console.log('Anki: Inline explain — simulated Enter key');
+                }
+            }, 100);
+
+            console.log('Anki: Inline explain — injected query');
+        } else {
+            console.log('Anki: Inline explain — could not find search input');
+            console.log('ANKI_INLINE_RESPONSE:ERROR_TIMEOUT');
+        }
+    })();
+    """ % repr(query)
+
+    panel.web.page().runJavaScript(js_code)
+
+    # After submitting, inject JS that polls for the response and stores it in a global var.
+    # Then Python polls that var using runJavaScript callbacks (no console.log length limits).
+    poll_js = """
+    (function() {
+        window.ankiInlineResult = null;
+        window.ankiInlinePartial = null;
+        var initialCount = document.querySelectorAll('article.MuiBox-root').length;
+        var pollCount = 0;
+        var maxPolls = 120;
+        var lastTextLength = -1;
+        var stableCount = 0;
+
+        function extractText(article) {
+            var paragraphs = article.querySelectorAll('p');
+            var html = '';
+
+            paragraphs.forEach(function(p) {
+                if (p.closest('.MuiStepper-root')) return;
+                if (p.closest('.brandable--references')) return;
+                if (p.closest('.MuiCollapse-hidden')) return;
+                if (p.classList.contains('MuiTypography-body2')) return;
+
+                var clone = p.cloneNode(true);
+                clone.querySelectorAll('.markdown-article-citation-chip').forEach(function(c) { c.remove(); });
+                clone.querySelectorAll('[aria-hidden="true"]').forEach(function(c) { c.remove(); });
+
+                var cleaned = clone.innerHTML.trim();
+                if (cleaned.length > 0) {
+                    html += cleaned + '<br><br>';
+                }
+            });
+
+            return html.replace(/<br><br>$/, '');
+        }
+
+        var pollInterval = setInterval(function() {
+            pollCount++;
+            if (pollCount > maxPolls) {
+                clearInterval(pollInterval);
+                window.ankiInlineResult = 'ERROR_TIMEOUT';
+                return;
+            }
+
+            // Check for out-of-scope warning
+            var warning = document.querySelector('.MuiAlert-standardWarning, .MuiAlert-colorWarning');
+            if (warning && warning.textContent.indexOf('outside the scope') !== -1) {
+                clearInterval(pollInterval);
+                window.ankiInlineResult = 'OUT_OF_SCOPE';
+                return;
+            }
+
+            var articles = document.querySelectorAll('article.MuiBox-root');
+            if (articles.length <= initialCount) return;
+
+            var lastArticle = articles[articles.length - 1];
+            var text = extractText(lastArticle);
+            if (text.length === 0) return;
+
+            // Always expose partial text for streaming
+            window.ankiInlinePartial = text;
+
+            // Wait for text to stabilize — same length for 3 consecutive checks (1.5s)
+            if (text.length === lastTextLength) {
+                stableCount++;
+                if (stableCount >= 3) {
+                    clearInterval(pollInterval);
+                    window.ankiInlineResult = text;
+                }
+            } else {
+                lastTextLength = text.length;
+                stableCount = 0;
+            }
+        }, 300);
+    })();
+    """
+
+    from aqt.qt import QTimer
+
+    # Start the JS-side polling after a delay
+    QTimer.singleShot(1000, lambda: panel.web.page().runJavaScript(poll_js))
+
+    # Python-side: poll the JS variable and stream partial updates to reviewer
+    def _start_python_poll():
+        _py_poll_count = [0]
+        _last_sent = [None]  # Track last sent text to avoid duplicates
+
+        def _check_result():
+            _py_poll_count[0] += 1
+            if _py_poll_count[0] > 70:  # 35 seconds max
+                _py_timer.stop()
+                _send_to_reviewer("ERROR_TIMEOUT", True)
+                _cleanup_panel()
+                return
+
+            panel.web.page().runJavaScript(
+                "[window.ankiInlinePartial, window.ankiInlineResult]",
+                _on_poll_result
+            )
+
+        def _on_poll_result(result):
+            if not result or not isinstance(result, list):
+                return
+            partial = result[0] if len(result) > 0 else None
+            final = result[1] if len(result) > 1 else None
+
+            if final and isinstance(final, str):
+                _py_timer.stop()
+                _send_to_reviewer(final, True)
+                _cleanup_panel()
+            elif partial and isinstance(partial, str) and partial != _last_sent[0]:
+                _last_sent[0] = partial
+                _send_to_reviewer(partial, False)
+
+        def _send_to_reviewer(text, is_done):
+            import json
+            escaped = json.dumps(text)
+            done_str = 'true' if is_done else 'false'
+            if mw.reviewer and hasattr(mw.reviewer, 'web') and mw.reviewer.web:
+                mw.reviewer.web.eval(
+                    f"if(window.ankiStreamExplainText) window.ankiStreamExplainText({escaped}, {done_str});"
+                )
+
+        def _cleanup_panel():
+            if dock_widget:
+                dock_widget.hide()
+                dock_widget.setWindowOpacity(1)
+                dock_widget.setFloating(False)
+                mw.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock_widget)
+
+        _py_timer = QTimer()
+        _py_timer.timeout.connect(_check_result)
+        _py_timer.start(300)
+        # Keep reference
+        mw._inline_explain_timer = _py_timer
+
+    QTimer.singleShot(1500, _start_python_poll)
+
+
+def add_deck_browser_button():
+    """Add AI Generate button to the deck browser bottom bar by monkey-patching"""
+    from aqt.deckbrowser import DeckBrowser
+
+    original_drawLinks = DeckBrowser._drawButtons
+
+    def patched_drawButtons(self):
+        original_drawLinks(self)
+        # Inject our button into the bottom bar via JS
+        js = """
+        (function() {
+            var bottomBar = document.querySelector('.bottom-bar') || document.body;
+            // Only inject once
+            if (document.getElementById('ai-generate-btn')) return;
+            var buttons = document.querySelectorAll('button');
+            var lastBtn = buttons[buttons.length - 1];
+            if (lastBtn) {
+                var btn = document.createElement('button');
+                btn.id = 'ai-generate-btn';
+                btn.textContent = 'AI Generate';
+                btn.onclick = function() { pycmd('ai_generate'); return false; };
+                lastBtn.parentNode.insertBefore(btn, lastBtn.nextSibling);
+            }
+        })();
+        """
+        self.bottom.web.eval(js)
+
+    DeckBrowser._drawButtons = patched_drawButtons
+
+
 def add_toolbar_button(links, toolbar):
     """Add OpenEvidence button to the top toolbar"""
     # Create open book SVG icon (matching Anki's icon size and style)
@@ -615,9 +905,14 @@ def start_periodic_analytics_check():
 # Hook registration
 gui_hooks.webview_did_receive_js_message.append(on_webview_did_receive_js_message)
 gui_hooks.top_toolbar_did_init_links.append(add_toolbar_button)
+add_deck_browser_button()  # Monkey-patch deck browser bottom bar
 # Use delayed preloading for better performance
 gui_hooks.main_window_did_init.append(preload_panel)
 gui_hooks.reviewer_did_show_question.append(store_current_card_text)
 gui_hooks.reviewer_did_show_answer.append(store_current_card_text)
 # Set up highlight bubble hooks for reviewer
 setup_highlight_hooks()
+# Add AI Create button to editor toolbar + AI Answer to Back field
+from .ai_create import setup_editor_button, on_editor_load_note
+gui_hooks.editor_did_init_buttons.append(setup_editor_button)
+gui_hooks.editor_did_load_note.append(on_editor_load_note)
