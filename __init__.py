@@ -313,6 +313,15 @@ def on_webview_did_receive_js_message(handled, message, context):
         toggle_panel()
         return (True, None)
 
+    if message == "openevidence:clear_chat":
+        # User dismissed inline explain without "Continue in chat" — clear the conversation
+        if dock_widget:
+            panel = dock_widget.widget()
+            if panel and hasattr(panel, 'web'):
+                from .ai_create import _delete_latest_oe_conversation
+                _delete_latest_oe_conversation(panel)
+        return (True, None)
+
     if message == "ai_generate":
         if not _has_internet():
             from aqt.utils import tooltip
@@ -320,6 +329,17 @@ def on_webview_did_receive_js_message(handled, message, context):
             return (True, None)
         from .ai_generate import show_ai_generate_dialog
         show_ai_generate_dialog()
+        return (True, None)
+
+    if message == "ai_create":
+        from .ai_create import show_ai_create
+        if hasattr(mw, 'app'):
+            from aqt.editcurrent import EditCurrent
+            from aqt.addcards import AddCards
+            for widget in mw.app.topLevelWidgets():
+                if isinstance(widget, (AddCards, EditCurrent)) and hasattr(widget, 'editor'):
+                    show_ai_create(widget.editor)
+                    return (True, None)
         return (True, None)
 
     if message == "ai_answer":
@@ -776,7 +796,7 @@ def handle_inline_explain(selected_text):
             if final and isinstance(final, str):
                 _py_timer.stop()
                 _send_to_reviewer(final, True)
-                _cleanup_panel()
+                _cleanup_panel(clear_chat=False)
             elif partial and isinstance(partial, str) and partial != _last_sent[0]:
                 _last_sent[0] = partial
                 _send_to_reviewer(partial, False)
@@ -790,8 +810,13 @@ def handle_inline_explain(selected_text):
                     f"if(window.ankiStreamExplainText) window.ankiStreamExplainText({escaped}, {done_str});"
                 )
 
-        def _cleanup_panel():
+        def _cleanup_panel(clear_chat=True):
             if dock_widget:
+                if clear_chat:
+                    p = dock_widget.widget()
+                    if p and hasattr(p, 'web'):
+                        from .ai_create import _delete_latest_oe_conversation
+                        _delete_latest_oe_conversation(p)
                 dock_widget.hide()
                 dock_widget.setWindowOpacity(1)
                 dock_widget.setFloating(False)

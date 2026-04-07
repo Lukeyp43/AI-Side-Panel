@@ -29,6 +29,7 @@ try:
     )
     from PyQt6.QtCore import Qt, QTimer, QEvent
     from PyQt6.QtGui import QCursor, QColor, QPainterPath, QRegion, QPainter
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
 except ImportError:
     from PyQt5.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -36,6 +37,7 @@ except ImportError:
     )
     from PyQt5.QtCore import Qt, QTimer, QEvent
     from PyQt5.QtGui import QCursor, QColor, QPainterPath, QRegion, QPainter
+    from PyQt5.QtWebEngineWidgets import QWebEngineView
 
 _FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
 
@@ -91,11 +93,46 @@ def _get_package():
     return sys.modules.get('the_ai_panel') or sys.modules.get(__name__.rsplit('.', 1)[0])
 
 
+def _delete_latest_oe_conversation(panel):
+    """Capture conversation ID from current URL, then call OE's forget API
+    to delete it. No UI clicking — direct POST to /api/article/{id}/forget."""
+    from aqt.qt import QUrl
+
+    def _on_url(url):
+        if not url or not isinstance(url, str) or 'openevidence.com' not in url:
+            panel.web.load(QUrl("https://www.openevidence.com/"))
+            return
+
+        # Extract conversation ID from URL (e.g. /ask/27f5387e-...)
+        path = url.replace('https://www.openevidence.com', '').split('?')[0]
+        parts = [p for p in path.split('/') if p]
+        conv_id = parts[-1] if len(parts) >= 2 else None
+
+        if conv_id:
+            # Call the forget API directly — runs in the webview so it has auth cookies
+            import json
+            forget_js = """
+            fetch('/api/article/%s/forget', {
+                method: 'POST',
+                credentials: 'include'
+            });
+            """ % conv_id
+            panel.web.page().runJavaScript(forget_js)
+
+        # Navigate to root for a clean state
+        QTimer.singleShot(500, lambda: panel.web.load(QUrl("https://www.openevidence.com/")))
+
+    panel.web.page().runJavaScript("window.location.href", _on_url)
+
+
 def _cleanup_create_panel():
-    """Hide the hidden OpenEvidence panel after AI Create finishes."""
+    """Hide the hidden OpenEvidence panel after AI Create finishes and reset chat."""
     pkg = _get_package()
     dock_widget = getattr(pkg, 'dock_widget', None) if pkg else None
     if dock_widget:
+        panel = dock_widget.widget()
+        if panel and hasattr(panel, 'web'):
+            _delete_latest_oe_conversation(panel)
         dock_widget.hide()
         dock_widget.setWindowOpacity(1)
         dock_widget.setFloating(False)
@@ -144,8 +181,6 @@ class AICreateWindow(QWidget):
         self._poll_timer = None
         self._drag_pos = None
         self._overlay = None
-        self._spinner_timer = None
-        self._spinner_frame = 0
 
         self._setup_ui()
         self._center_on_screen()
@@ -279,6 +314,13 @@ class AICreateWindow(QWidget):
         """)
         self.generate_btn.clicked.connect(self._on_generate)
         bottom.addWidget(self.generate_btn)
+
+        # Loading spinner (hidden by default, shown during generation)
+        self.spinner = QWebEngineView()
+        self.spinner.setFixedHeight(44)
+        self.spinner.hide()
+        bottom.addWidget(self.spinner)
+
         main_layout.addLayout(bottom)
 
     def _title_mouse_press(self, event):
@@ -319,32 +361,11 @@ class AICreateWindow(QWidget):
         prompt = SINGLE_CARD_PROMPT.format(content=content)
 
         # Show loading state with rolling dots spinner
-        c = ThemeManager.get_palette()
-        self.generate_btn.setEnabled(False)
+        self.generate_btn.hide()
         self.content_input.setEnabled(False)
-        self.generate_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {c['surface']};
-                color: {c['text_secondary']};
-                border: 1px solid {c['border']};
-                border-radius: 10px;
-                font-size: 15px;
-                font-weight: 600;
-                font-family: {_FONT};
-            }}
-        """)
         self.status_label.hide()
-
-        # Animate rolling dots on button
-        dot_frames = ["·", "· ·", "· · ·", "· · · ·", "  · · ·", "    · ·", "      ·", ""]
-        self._spinner_frame = 0
-        def _animate_dots():
-            self._spinner_frame = (self._spinner_frame + 1) % len(dot_frames)
-            self.generate_btn.setText(dot_frames[self._spinner_frame])
-        self.generate_btn.setText(dot_frames[0])
-        self._spinner_timer = QTimer()
-        self._spinner_timer.timeout.connect(_animate_dots)
-        self._spinner_timer.start(200)
+        self.spinner.setHtml(ThemeManager.get_loading_html())
+        self.spinner.show()
 
         self._start_generation(prompt)
 
@@ -542,7 +563,7 @@ class AICreateWindow(QWidget):
                     editor.note.fields[0] = front.replace('\n', '<br>')
                     editor.note.fields[1] = (back or '').replace('\n', '<br>')
                     editor.loadNote()
-                    tooltip("Card created! Edit if needed, then click Add.", period=3000)
+                    pass
 
         _ai_create_timer = QTimer()
         _ai_create_timer.timeout.connect(check_result)
@@ -568,9 +589,12 @@ class AICreateWindow(QWidget):
 
     def _on_error(self, message):
         c = ThemeManager.get_palette()
+        self.spinner.hide()
         self.status_label.setText(message)
         self.status_label.setStyleSheet(f"color: {c['danger']}; font-size: 12px; font-family: {_FONT};")
         self.status_label.show()
+        self.content_input.setEnabled(True)
+        self.generate_btn.show()
         self.generate_btn.setEnabled(True)
         self.generate_btn.setText("Try Again")
         self.generate_btn.setStyleSheet(f"""
@@ -587,8 +611,6 @@ class AICreateWindow(QWidget):
         """)
 
     def closeEvent(self, event):
-        if self._spinner_timer:
-            self._spinner_timer.stop()
         if self._overlay:
             self._overlay.hide()
             self._overlay.deleteLater()
@@ -619,15 +641,8 @@ def show_ai_create(editor):
 
 
 def setup_editor_button(buttons, editor):
-    """Add AI Create button to editor toolbar."""
-    button = editor.addButton(
-        icon=None,
-        cmd="ai_create",
-        func=show_ai_create,
-        tip="AI Create - Generate a card from pasted content",
-        label="AI Create",
-    )
-    buttons.append(button)
+    """No-op — AI Create button is now injected via JS in on_editor_load_note."""
+    pass
 
 
 # ─── AI Answer ───────────────────────────────────────────────────────
@@ -859,6 +874,9 @@ def _handle_ai_answer(editor):
             pkg2 = _get_package()
             dw = getattr(pkg2, 'dock_widget', None) if pkg2 else None
             if dw:
+                p = dw.widget()
+                if p and hasattr(p, 'web'):
+                    _delete_latest_oe_conversation(p)
                 dw.hide()
                 dw.setWindowOpacity(1)
                 dw.setFloating(False)
@@ -983,24 +1001,12 @@ def on_editor_load_note(editor):
     """
 
     # Move AI Create button next to Cards... in the notetypeButtons group
-    # Hide AI Create button immediately so it's not visible in wrong position
-    hide_js = """
+    # Create AI Create button directly next to Cards... via JS (no addButton)
+    create_btn_js = """
     (function() {
-        var aiBtn = document.querySelector('button[title*="AI Create"]');
-        if (aiBtn && !aiBtn.dataset.moved) {
-            var el = aiBtn.parentElement || aiBtn;
-            el.style.display = 'none';
-        }
-    })();
-    """
+        if (document.getElementById('ai-create-btn')) return;
 
-    move_js = """
-    (function() {
-        // Find the AI Create button (added by addButton to the right-side toolbar)
-        var aiBtn = document.querySelector('button[title*="AI Create"]');
-        if (!aiBtn || aiBtn.dataset.moved) return;
-
-        // Find the "Cards..." button text in the notetypeButtons group
+        // Find the "Cards..." button
         var allBtns = document.querySelectorAll('button');
         var cardsBtn = null;
         for (var i = 0; i < allBtns.length; i++) {
@@ -1011,33 +1017,30 @@ def on_editor_load_note(editor):
         }
         if (!cardsBtn) return;
 
-        // Move AI Create button right after Cards... button
-        var cardsParent = cardsBtn.parentElement;
-        if (cardsParent && cardsParent.parentElement) {
-            var cardsWrapper = cardsParent;
-            var moveEl = aiBtn.parentElement || aiBtn;
-            cardsWrapper.parentElement.insertBefore(moveEl, cardsWrapper.nextSibling);
-            moveEl.style.display = '';
-            aiBtn.dataset.moved = 'true';
-        }
+        // Clone Cards... button styling by creating a similar element
+        var btn = document.createElement('button');
+        btn.id = 'ai-create-btn';
+        btn.className = cardsBtn.className;
+        btn.textContent = 'AI Create';
+        btn.title = 'AI Create - Generate a card from pasted content';
+        btn.onclick = function(e) {
+            e.preventDefault();
+            pycmd('ai_create');
+        };
 
-        // Keep AI Create always active (Anki disables toolbar buttons when no field focused)
-        function keepActive() {
-            if (aiBtn.disabled) aiBtn.disabled = false;
-            aiBtn.style.opacity = '1';
-            aiBtn.style.pointerEvents = 'auto';
+        // Insert right after Cards... button's wrapper
+        var cardsWrapper = cardsBtn.parentElement;
+        if (cardsWrapper && cardsWrapper.parentElement) {
+            var clone = cardsWrapper.cloneNode(false);
+            clone.innerHTML = '';
+            clone.appendChild(btn);
+            cardsWrapper.parentElement.insertBefore(clone, cardsWrapper.nextSibling);
         }
-        keepActive();
-        new MutationObserver(keepActive).observe(aiBtn, { attributes: true, attributeFilter: ['disabled', 'style'] });
     })();
     """
 
-    # Hide immediately so button is never visible in wrong position
-    editor.web.eval(hide_js)
-
     def _inject():
-        editor.web.eval(hide_js)
         editor.web.eval(js)
-        editor.web.eval(move_js)
+        editor.web.eval(create_btn_js)
 
     QTimer.singleShot(300, _inject)

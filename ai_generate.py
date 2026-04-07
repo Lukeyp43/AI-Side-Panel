@@ -1520,6 +1520,10 @@ class AIGenerateWindow(QWidget):
         pkg = _get_package()
         dock_widget = getattr(pkg, 'dock_widget', None) if pkg else None
         if dock_widget:
+            panel = dock_widget.widget()
+            if panel and hasattr(panel, 'web'):
+                from .ai_create import _delete_latest_oe_conversation
+                _delete_latest_oe_conversation(panel)
             dock_widget.hide()
             dock_widget.setWindowOpacity(1)
             dock_widget.setFloating(False)

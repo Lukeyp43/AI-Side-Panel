@@ -498,7 +498,7 @@ HIGHLIGHT_BUBBLE_JS = """
         }
 
         var closeBtn = bubble.querySelector('#tooltip-close');
-        closeBtn.addEventListener('click', (e) => { e.stopPropagation(); hideBubble(); });
+        closeBtn.addEventListener('click', (e) => { e.stopPropagation(); pycmd('openevidence:clear_chat'); hideBubble(); });
         closeBtn.addEventListener('mouseup', (e) => { e.stopPropagation(); });
         closeBtn.addEventListener('mouseenter', () => { closeBtn.style.color = 'rgba(255,255,255,0.65)'; });
         closeBtn.addEventListener('mouseleave', () => { closeBtn.style.color = 'rgba(255,255,255,0.3)'; });
