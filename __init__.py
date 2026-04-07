@@ -1,4 +1,5 @@
 import sys
+import socket
 import aqt
 from aqt import mw, gui_hooks
 from aqt.qt import *
@@ -274,6 +275,14 @@ def create_dock_widget():
     return dock_widget
 
 
+def _has_internet():
+    try:
+        socket.create_connection(("8.8.8.8", 53), timeout=2).close()
+        return True
+    except OSError:
+        return False
+
+
 def toggle_panel():
     """Toggle the OpenEvidence dock widget visibility"""
     global dock_widget
@@ -284,6 +293,11 @@ def toggle_panel():
     if dock_widget.isVisible():
         dock_widget.hide()
     else:
+        if not _has_internet():
+            from aqt.utils import tooltip
+            tooltip("No internet connection. Check your connection and try again.", period=3000)
+            return
+
         # If the dock is floating, dock it back to the right side
         if dock_widget.isFloating():
             dock_widget.setFloating(False)
@@ -300,6 +314,10 @@ def on_webview_did_receive_js_message(handled, message, context):
         return (True, None)
 
     if message == "ai_generate":
+        if not _has_internet():
+            from aqt.utils import tooltip
+            tooltip("No internet connection. Check your connection and try again.", period=3000)
+            return (True, None)
         from .ai_generate import show_ai_generate_dialog
         show_ai_generate_dialog()
         return (True, None)
@@ -874,8 +892,12 @@ def preload_panel():
 
     # Wait 500ms after Anki finishes initializing to start preloading
     # This ensures Anki's UI is responsive while OpenEvidence loads in background
+    # Skip preload if no internet to avoid unnecessary network errors
     from aqt.qt import QTimer
-    QTimer.singleShot(500, create_dock_widget)
+    def _maybe_preload():
+        if _has_internet():
+            create_dock_widget()
+    QTimer.singleShot(500, _maybe_preload)
 
     # On first install, show the book icon overlay to guide user
     if is_fresh_install:

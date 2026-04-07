@@ -318,6 +318,13 @@ def send_analytics_background():
     """Send analytics to Supabase in background thread (non-blocking)."""
     def _send():
         try:
+            # Quick internet check before attempting
+            import socket
+            try:
+                socket.create_connection(("8.8.8.8", 53), timeout=2).close()
+            except OSError:
+                return
+
             # Get config for endpoint URL
             config = mw.addonManager.getConfig(ADDON_NAME) or {}
             endpoint_url = config.get("analytics_endpoint")

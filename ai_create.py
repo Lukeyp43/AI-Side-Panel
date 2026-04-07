@@ -6,8 +6,18 @@ AI generates a single Front/Back card, fills the editor fields.
 
 import sys
 import re
+import socket
 from aqt import mw
 from aqt.utils import tooltip
+
+
+def _has_internet():
+    """Quick check for internet connectivity."""
+    try:
+        socket.create_connection(("8.8.8.8", 53), timeout=2).close()
+        return True
+    except OSError:
+        return False
 
 from .utils import ADDON_NAME
 from .theme_manager import ThemeManager
@@ -29,7 +39,9 @@ except ImportError:
 
 _FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
 
-SINGLE_CARD_PROMPT = """Create exactly 1 flashcard from the content below. If it's a topic, create a question about it. If it's notes or content, create a question testing a key concept from it. The back should be a thorough answer.
+SINGLE_CARD_PROMPT = """Create exactly 1 flashcard from the content below. If it's a topic, create a question about it. If it's notes or content, create a question testing a key concept from it.
+
+Be concise and direct in the answer. Scale the answer length to the complexity of the question. Do not ask follow-up questions. Do not add disclaimers, caveats, or unnecessary elaboration.
 
 You MUST format your response EXACTLY like this, with no other text before or after:
 
@@ -54,8 +66,40 @@ def parse_single_card(response_text):
     return None, None
 
 
+def parse_partial_card(response_text):
+    """Parse card content even if tags aren't fully closed yet (for streaming)."""
+    front = None
+    back = None
+
+    # Extract front content — handle both closed and unclosed tag
+    front_match = re.search(r'<front>(.*?)(?:</front>|$)', response_text, re.DOTALL)
+    if front_match:
+        front = front_match.group(1).strip()
+
+    # Extract back content — handle both closed and unclosed tag
+    back_match = re.search(r'<back>(.*?)(?:</back>|$)', response_text, re.DOTALL)
+    if back_match:
+        back = back_match.group(1).strip()
+
+    return front, back
+
+
+_ai_create_timer = None
+
+
 def _get_package():
     return sys.modules.get('the_ai_panel') or sys.modules.get(__name__.rsplit('.', 1)[0])
+
+
+def _cleanup_create_panel():
+    """Hide the hidden OpenEvidence panel after AI Create finishes."""
+    pkg = _get_package()
+    dock_widget = getattr(pkg, 'dock_widget', None) if pkg else None
+    if dock_widget:
+        dock_widget.hide()
+        dock_widget.setWindowOpacity(1)
+        dock_widget.setFloating(False)
+        mw.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock_widget)
 
 
 class ModalOverlay(QWidget):
@@ -100,6 +144,8 @@ class AICreateWindow(QWidget):
         self._poll_timer = None
         self._drag_pos = None
         self._overlay = None
+        self._spinner_timer = None
+        self._spinner_frame = 0
 
         self._setup_ui()
         self._center_on_screen()
@@ -265,13 +311,17 @@ class AICreateWindow(QWidget):
             tooltip("Please paste some content first.", period=2000)
             return
 
+        if not _has_internet():
+            self._on_error("No internet connection. Check your connection and try again.")
+            return
+
         self._user_content = content  # Store for fallback Front
         prompt = SINGLE_CARD_PROMPT.format(content=content)
 
-        # Show loading state
+        # Show loading state with rolling dots spinner
         c = ThemeManager.get_palette()
         self.generate_btn.setEnabled(False)
-        self.generate_btn.setText("Generating...")
+        self.content_input.setEnabled(False)
         self.generate_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {c['surface']};
@@ -283,16 +333,25 @@ class AICreateWindow(QWidget):
                 font-family: {_FONT};
             }}
         """)
-        self.status_label.setText("Writing into your card fields...")
-        self.status_label.setStyleSheet(f"color: {c['text_secondary']}; font-size: 12px; font-family: {_FONT};")
-        self.status_label.show()
+        self.status_label.hide()
+
+        # Animate rolling dots on button
+        dot_frames = ["·", "· ·", "· · ·", "· · · ·", "  · · ·", "    · ·", "      ·", ""]
+        self._spinner_frame = 0
+        def _animate_dots():
+            self._spinner_frame = (self._spinner_frame + 1) % len(dot_frames)
+            self.generate_btn.setText(dot_frames[self._spinner_frame])
+        self.generate_btn.setText(dot_frames[0])
+        self._spinner_timer = QTimer()
+        self._spinner_timer.timeout.connect(_animate_dots)
+        self._spinner_timer.start(200)
 
         self._start_generation(prompt)
 
     def _start_generation(self, prompt):
         pkg = _get_package()
         if not pkg:
-            self._on_error("Package not found")
+            self._on_error("Something went wrong. Try again, and if that doesn't work, try again later.")
             return
 
         dock_widget = getattr(pkg, 'dock_widget', None)
@@ -303,7 +362,7 @@ class AICreateWindow(QWidget):
             dock_widget = getattr(pkg, 'dock_widget', None)
 
         if not dock_widget:
-            self._on_error("Panel not available")
+            self._on_error("Something went wrong. Try again, and if that doesn't work, try again later.")
             return
 
         if not dock_widget.isVisible():
@@ -314,7 +373,7 @@ class AICreateWindow(QWidget):
 
         panel = dock_widget.widget()
         if not panel or not hasattr(panel, 'web'):
-            self._on_error("Panel web view not ready")
+            self._on_error("Something went wrong. Try again, and if that doesn't work, try again later.")
             return
 
         if hasattr(panel, 'show_web_view'):
@@ -361,7 +420,7 @@ class AICreateWindow(QWidget):
             window.ankiCreateError = null;
             var initialCount = document.querySelectorAll('article.MuiBox-root').length;
             var pollCount = 0;
-            var maxPolls = 200;
+            var maxPolls = 134;
             var lastTextLength = -1;
             var stableCount = 0;
 
@@ -408,27 +467,33 @@ class AICreateWindow(QWidget):
         QTimer.singleShot(2000, self._start_python_poll)
 
     def _start_python_poll(self):
+        global _ai_create_timer
+
         pkg = _get_package()
         dock_widget = getattr(pkg, 'dock_widget', None) if pkg else None
         if not dock_widget:
-            self._on_error("Panel lost")
+            self._on_error("Something went wrong. Try again, and if that doesn't work, try again later.")
             return
 
         panel = dock_widget.widget()
         if not panel or not hasattr(panel, 'web'):
-            self._on_error("Panel web view lost")
+            self._on_error("Something went wrong. Try again, and if that doesn't work, try again later.")
             return
 
-        self._py_poll_count = 0
-        self._last_partial = None
+        poll_count = [0]
+        last_partial = [None]
+        editor = self._editor
+        modal = self
 
         def check_result():
-            self._py_poll_count += 1
-            if self._py_poll_count > 120:
-                if self._poll_timer:
-                    self._poll_timer.stop()
-                self._cleanup_panel()
-                self._on_error("OpenEvidence is having an issue. Try again, and if that doesn't work, try again later.")
+            poll_count[0] += 1
+            if poll_count[0] > 80:
+                _ai_create_timer.stop()
+                _cleanup_create_panel()
+                if not _has_internet():
+                    tooltip("No internet connection. Check your connection and try again.", period=3000)
+                else:
+                    tooltip("Something went wrong. Try again, and if that doesn't work, try again later.", period=3000)
                 return
 
             panel.web.page().runJavaScript(
@@ -444,41 +509,44 @@ class AICreateWindow(QWidget):
             error = result[2] if len(result) > 2 else None
 
             if error and isinstance(error, str):
-                if self._poll_timer:
-                    self._poll_timer.stop()
-                self._cleanup_panel()
-                self._on_error(error)
+                _ai_create_timer.stop()
+                _cleanup_create_panel()
+                tooltip("Something went wrong. Try again, and if that doesn't work, try again later.", period=3000)
                 return
 
-            # Stream partial — try to parse card and fill editor live
-            if partial and isinstance(partial, str) and partial != self._last_partial:
-                self._last_partial = partial
-                front, back = parse_single_card(partial)
-                if front and self._editor and self._editor.note:
-                    self._editor.note.fields[0] = front.replace('\n', '<br>')
-                    self._editor.note.fields[1] = (back or '').replace('\n', '<br>')
-                    self._editor.loadNote()
-                    self.status_label.setText("Writing card...")
+            # Stream partial — parse even incomplete tags and fill editor live
+            if partial and isinstance(partial, str) and partial != last_partial[0]:
+                last_partial[0] = partial
+                front, back = parse_partial_card(partial)
+                if front and editor and editor.note:
+                    editor.note.fields[0] = front.replace('\n', '<br>')
+                    editor.note.fields[1] = (back or '').replace('\n', '<br>')
+                    editor.loadNote()
+                    # Auto-close modal once content starts streaming
+                    try:
+                        if modal.isVisible():
+                            modal.close()
+                    except RuntimeError:
+                        pass
 
             if final and isinstance(final, str):
-                if self._poll_timer:
-                    self._poll_timer.stop()
-                self._cleanup_panel()
+                _ai_create_timer.stop()
+                _cleanup_create_panel()
 
                 if final == 'ERROR_TIMEOUT':
-                    self._on_error("OpenEvidence is having an issue. Try again, and if that doesn't work, try again later.")
+                    tooltip("Something went wrong. Try again, and if that doesn't work, try again later.", period=3000)
                     return
 
                 front, back = parse_single_card(final)
-                if not front:
-                    self._on_error("Couldn't parse card from response. Try again.")
-                    return
+                if front and editor and editor.note:
+                    editor.note.fields[0] = front.replace('\n', '<br>')
+                    editor.note.fields[1] = (back or '').replace('\n', '<br>')
+                    editor.loadNote()
+                    tooltip("Card created! Edit if needed, then click Add.", period=3000)
 
-                self._fill_editor(front, back)
-
-        self._poll_timer = QTimer()
-        self._poll_timer.timeout.connect(check_result)
-        self._poll_timer.start(500)
+        _ai_create_timer = QTimer()
+        _ai_create_timer.timeout.connect(check_result)
+        _ai_create_timer.start(500)
 
     def _cleanup_panel(self):
         pkg = _get_package()
@@ -519,8 +587,8 @@ class AICreateWindow(QWidget):
         """)
 
     def closeEvent(self, event):
-        if self._poll_timer:
-            self._poll_timer.stop()
+        if self._spinner_timer:
+            self._spinner_timer.stop()
         if self._overlay:
             self._overlay.hide()
             self._overlay.deleteLater()
@@ -530,6 +598,10 @@ class AICreateWindow(QWidget):
 
 def show_ai_create(editor):
     """Show the AI Create modal for the given editor."""
+    if not _has_internet():
+        tooltip("No internet connection. Check your connection and try again.", period=3000)
+        return
+
     # Create overlay on the editor's parent window
     parent_window = editor.parentWindow
     overlay = ModalOverlay(parent_window)
@@ -547,7 +619,7 @@ def show_ai_create(editor):
 
 
 def setup_editor_button(buttons, editor):
-    """Add AI Create button to editor toolbar, between Cards... and gear icon."""
+    """Add AI Create button to editor toolbar."""
     button = editor.addButton(
         icon=None,
         cmd="ai_create",
@@ -555,7 +627,7 @@ def setup_editor_button(buttons, editor):
         tip="AI Create - Generate a card from pasted content",
         label="AI Create",
     )
-    buttons.insert(0, button)
+    buttons.append(button)
 
 
 # ─── AI Answer ───────────────────────────────────────────────────────
@@ -608,6 +680,10 @@ def _handle_ai_answer(editor):
         tooltip("Type a question in the Front field first.", period=2000)
         return
 
+    if not _has_internet():
+        tooltip("No internet connection. Check your connection and try again.", period=3000)
+        return
+
     prompt = AI_ANSWER_PROMPT.format(question=clean_q)
 
     # Show loading state with spinner dots
@@ -630,7 +706,7 @@ def _handle_ai_answer(editor):
     pkg = _get_package()
     if not pkg:
         _reset_btn(editor)
-        tooltip("AI not available.", period=2000)
+        tooltip("Something went wrong. Try again, and if that doesn't work, try again later.", period=3000)
         return
 
     dock_widget = getattr(pkg, 'dock_widget', None)
@@ -642,7 +718,7 @@ def _handle_ai_answer(editor):
 
     if not dock_widget:
         _reset_btn(editor)
-        tooltip("AI panel not available.", period=2000)
+        tooltip("Something went wrong. Try again, and if that doesn't work, try again later.", period=3000)
         return
 
     if not dock_widget.isVisible():
@@ -654,7 +730,7 @@ def _handle_ai_answer(editor):
     panel = dock_widget.widget()
     if not panel or not hasattr(panel, 'web'):
         _reset_btn(editor)
-        tooltip("AI panel not ready.", period=2000)
+        tooltip("Something went wrong. Try again, and if that doesn't work, try again later.", period=3000)
         return
 
     if hasattr(panel, 'show_web_view'):
@@ -694,7 +770,7 @@ def _handle_ai_answer(editor):
         window.ankiAnswerPartial = null;
         var initialCount = document.querySelectorAll('article.MuiBox-root').length;
         var pollCount = 0;
-        var maxPolls = 200;
+        var maxPolls = 134;
         var lastTextLength = -1;
         var stableCount = 0;
 
@@ -737,11 +813,14 @@ def _handle_ai_answer(editor):
 
         def check():
             poll_count[0] += 1
-            if poll_count[0] > 120:
+            if poll_count[0] > 80:
                 _ai_answer_timer.stop()
                 _cleanup()
                 _reset_btn(editor)
-                tooltip("OpenEvidence is having an issue. Try again, and if that doesn't work, try again later.", period=3000)
+                if not _has_internet():
+                    tooltip("No internet connection. Check your connection and try again.", period=3000)
+                else:
+                    tooltip("Something went wrong. Try again, and if that doesn't work, try again later.", period=3000)
                 return
 
             panel.web.page().runJavaScript(
@@ -768,7 +847,7 @@ def _handle_ai_answer(editor):
 
                 if final == 'ERROR_TIMEOUT':
                     _reset_btn(editor)
-                    tooltip("OpenEvidence is having an issue. Try again.", period=2000)
+                    tooltip("Something went wrong. Try again, and if that doesn't work, try again later.", period=3000)
                     return
 
                 if editor.note:
@@ -903,4 +982,62 @@ def on_editor_load_note(editor):
     }})();
     """
 
-    QTimer.singleShot(500, lambda: editor.web.eval(js))
+    # Move AI Create button next to Cards... in the notetypeButtons group
+    # Hide AI Create button immediately so it's not visible in wrong position
+    hide_js = """
+    (function() {
+        var aiBtn = document.querySelector('button[title*="AI Create"]');
+        if (aiBtn && !aiBtn.dataset.moved) {
+            var el = aiBtn.parentElement || aiBtn;
+            el.style.display = 'none';
+        }
+    })();
+    """
+
+    move_js = """
+    (function() {
+        // Find the AI Create button (added by addButton to the right-side toolbar)
+        var aiBtn = document.querySelector('button[title*="AI Create"]');
+        if (!aiBtn || aiBtn.dataset.moved) return;
+
+        // Find the "Cards..." button text in the notetypeButtons group
+        var allBtns = document.querySelectorAll('button');
+        var cardsBtn = null;
+        for (var i = 0; i < allBtns.length; i++) {
+            if (allBtns[i].textContent.trim() === 'Cards...') {
+                cardsBtn = allBtns[i];
+                break;
+            }
+        }
+        if (!cardsBtn) return;
+
+        // Move AI Create button right after Cards... button
+        var cardsParent = cardsBtn.parentElement;
+        if (cardsParent && cardsParent.parentElement) {
+            var cardsWrapper = cardsParent;
+            var moveEl = aiBtn.parentElement || aiBtn;
+            cardsWrapper.parentElement.insertBefore(moveEl, cardsWrapper.nextSibling);
+            moveEl.style.display = '';
+            aiBtn.dataset.moved = 'true';
+        }
+
+        // Keep AI Create always active (Anki disables toolbar buttons when no field focused)
+        function keepActive() {
+            if (aiBtn.disabled) aiBtn.disabled = false;
+            aiBtn.style.opacity = '1';
+            aiBtn.style.pointerEvents = 'auto';
+        }
+        keepActive();
+        new MutationObserver(keepActive).observe(aiBtn, { attributes: true, attributeFilter: ['disabled', 'style'] });
+    })();
+    """
+
+    # Hide immediately so button is never visible in wrong position
+    editor.web.eval(hide_js)
+
+    def _inject():
+        editor.web.eval(hide_js)
+        editor.web.eval(js)
+        editor.web.eval(move_js)
+
+    QTimer.singleShot(300, _inject)

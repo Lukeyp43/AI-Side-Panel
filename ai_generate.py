@@ -5,8 +5,17 @@ Custom frameless window with step-by-step flow and auto-generation via hidden pa
 
 import re
 import sys
+import socket
 from aqt import mw
 from aqt.utils import tooltip
+
+
+def _has_internet():
+    try:
+        socket.create_connection(("8.8.8.8", 53), timeout=2).close()
+        return True
+    except OSError:
+        return False
 
 from .utils import ADDON_NAME
 from .theme_manager import ThemeManager
@@ -1189,6 +1198,10 @@ class AIGenerateWindow(QWidget):
             tooltip("Please enter content.", period=2000)
             return
 
+        if not _has_internet():
+            tooltip("No internet connection. Check your connection and try again.", period=3000)
+            return
+
         template = PROMPTS.get((self._mode, self._card_type), PROMPTS[("topic", "normal")])
         prompt = template.format(count=self._card_count, content=content)
 
@@ -1286,7 +1299,7 @@ class AIGenerateWindow(QWidget):
 
         pkg = _get_package()
         if not pkg:
-            self._on_generation_error("Package not found")
+            self._on_generation_error("Something went wrong. Try again, and if that doesn't work, try again later.")
             return
 
         dock_widget = getattr(pkg, 'dock_widget', None)
@@ -1297,7 +1310,7 @@ class AIGenerateWindow(QWidget):
             dock_widget = getattr(pkg, 'dock_widget', None)
 
         if not dock_widget:
-            self._on_generation_error("Panel not available")
+            self._on_generation_error("Something went wrong. Try again, and if that doesn't work, try again later.")
             return
 
         # Make panel invisible but active (same pattern as explain feature)
@@ -1309,7 +1322,7 @@ class AIGenerateWindow(QWidget):
 
         panel = dock_widget.widget()
         if not panel or not hasattr(panel, 'web'):
-            self._on_generation_error("Panel web view not ready")
+            self._on_generation_error("Something went wrong. Try again, and if that doesn't work, try again later.")
             return
 
         if hasattr(panel, 'show_web_view'):
@@ -1359,7 +1372,7 @@ class AIGenerateWindow(QWidget):
             window.ankiGenerateError = null;
             var initialCount = document.querySelectorAll('article.MuiBox-root').length;
             var pollCount = 0;
-            var maxPolls = 200;
+            var maxPolls = 134;
             var lastTextLength = -1;
             var stableCount = 0;
 
@@ -1410,12 +1423,12 @@ class AIGenerateWindow(QWidget):
         pkg = _get_package()
         dock_widget = getattr(pkg, 'dock_widget', None) if pkg else None
         if not dock_widget:
-            self._on_generation_error("Panel lost during generation")
+            self._on_generation_error("Something went wrong. Try again, and if that doesn't work, try again later.")
             return
 
         panel = dock_widget.widget()
         if not panel or not hasattr(panel, 'web'):
-            self._on_generation_error("Panel web view lost")
+            self._on_generation_error("Something went wrong. Try again, and if that doesn't work, try again later.")
             return
 
         self._py_poll_count = 0
@@ -1427,12 +1440,15 @@ class AIGenerateWindow(QWidget):
 
         def check_result():
             self._py_poll_count += 1
-            if self._py_poll_count > 120:  # ~60 seconds
+            if self._py_poll_count > 80:  # ~40 seconds
                 if self._poll_timer:
                     self._poll_timer.stop()
                 self._cleanup_panel()
                 if not self._parsed_cards:
-                    self._on_generation_error("Generation timed out. Try a shorter prompt.")
+                    if not _has_internet():
+                        self._on_generation_error("No internet connection. Check your connection and try again.")
+                    else:
+                        self._on_generation_error("Something went wrong. Try again, and if that doesn't work, try again later.")
                 else:
                     # We got some cards, finalize
                     self._finalize_preview()
@@ -1476,7 +1492,7 @@ class AIGenerateWindow(QWidget):
 
                 if final == 'ERROR_TIMEOUT':
                     if not self._parsed_cards:
-                        self._on_generation_error("OpenEvidence is having an issue. Try again, and if that doesn't work, try again later.")
+                        self._on_generation_error("Something went wrong. Try again, and if that doesn't work, try again later.")
                     else:
                         self._finalize_preview()
                     return
