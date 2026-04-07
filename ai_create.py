@@ -547,7 +547,7 @@ def show_ai_create(editor):
 
 
 def setup_editor_button(buttons, editor):
-    """Add AI Create button to editor toolbar."""
+    """Add AI Create button to editor toolbar, between Cards... and gear icon."""
     button = editor.addButton(
         icon=None,
         cmd="ai_create",
@@ -555,12 +555,12 @@ def setup_editor_button(buttons, editor):
         tip="AI Create - Generate a card from pasted content",
         label="AI Create",
     )
-    buttons.append(button)
+    buttons.insert(0, button)
 
 
 # ─── AI Answer ───────────────────────────────────────────────────────
 
-AI_ANSWER_PROMPT = """Answer the following question thoroughly and accurately. Just give the answer directly, no preamble.
+AI_ANSWER_PROMPT = """Answer the following question for a flashcard. Be concise and direct — answer only what is asked with no extra fluff or filler. Scale your response length to the complexity of the question. Do not ask follow-up questions at the end. Do not add disclaimers, caveats, or unnecessary elaboration.
 
 Question:
 {question}"""
@@ -610,11 +610,20 @@ def _handle_ai_answer(editor):
 
     prompt = AI_ANSWER_PROMPT.format(question=clean_q)
 
-    # Show loading state
+    # Show loading state with spinner dots
     editor.web.eval("""
     (function() {
         var btn = document.getElementById('ai-answer-btn');
-        if (btn) { btn.textContent = 'Generating...'; btn.style.opacity = '0.5'; btn.style.pointerEvents = 'none'; }
+        if (btn) {
+            btn.dataset.generating = 'true';
+            btn.style.pointerEvents = 'none';
+            btn.style.cursor = 'default';
+            btn.innerHTML = '<span style="display:inline-flex;gap:2px;align-items:center;">' +
+                '<span style="width:3px;height:3px;border-radius:50%;background:currentColor;animation:aiBounce 1.4s infinite ease-in-out both;animation-delay:-0.32s;"></span>' +
+                '<span style="width:3px;height:3px;border-radius:50%;background:currentColor;animation:aiBounce 1.4s infinite ease-in-out both;animation-delay:-0.16s;"></span>' +
+                '<span style="width:3px;height:3px;border-radius:50%;background:currentColor;animation:aiBounce 1.4s infinite ease-in-out both;"></span>' +
+                '</span>';
+        }
     })();
     """)
 
@@ -792,6 +801,8 @@ def _reset_btn(editor):
             btn.textContent = 'AI Answer';
             btn.style.opacity = '1';
             btn.style.pointerEvents = 'auto';
+            btn.style.cursor = 'pointer';
+            delete btn.dataset.generating;
         }
     })();
     """)
@@ -801,43 +812,40 @@ def on_editor_load_note(editor):
     """Inject AI Answer button into the Back field header, left of pin icon."""
     c = ThemeManager.get_palette()
     is_dark = ThemeManager.is_night_mode()
-    btn_color = "#555" if is_dark else "#999"
     btn_color_active = c['text_secondary']
     btn_hover = c['accent']
-    disabled_color = "#3a3a3f" if is_dark else "#ccc"
+    disabled_color = "#666" if is_dark else "#bbb"
 
     js = f"""
     (function() {{
         // Don't inject twice
         if (document.getElementById('ai-answer-btn')) return;
 
-        // Find the Back field's label/button row
-        var rows = document.querySelectorAll('.label-container');
-        var backRow = null;
-        rows.forEach(function(row) {{
-            var label = row.querySelector('.field-label');
-            if (label && label.textContent.trim() === 'Back') {{
-                backRow = row;
-            }}
-        }});
+        // Inject spinner keyframes once
+        if (!document.getElementById('ai-answer-spinner-style')) {{
+            var style = document.createElement('style');
+            style.id = 'ai-answer-spinner-style';
+            style.textContent = '@keyframes aiBounce {{ 0%, 80%, 100% {{ transform: scale(0); }} 40% {{ transform: scale(1); }} }}';
+            document.head.appendChild(style);
+        }}
 
-        if (!backRow) {{
-            // Fallback
-            var containers = document.querySelectorAll('.field-container');
-            if (containers.length >= 2) {{
-                backRow = containers[1].querySelector('.label-container');
+        // Find the Back field's label-container using Anki's Svelte class structure
+        var labelContainers = document.querySelectorAll('.label-container');
+        var fieldState = null;
+        for (var i = 0; i < labelContainers.length; i++) {{
+            var labelName = labelContainers[i].querySelector('.label-name');
+            if (labelName && labelName.textContent.trim() === 'Back') {{
+                fieldState = labelContainers[i].querySelector('.field-state');
+                break;
             }}
         }}
 
-        if (!backRow) return;
-
-        // Find the icon buttons container (pin, html icons)
-        var iconsContainer = backRow.querySelector('.icon-container, .field-actions') || backRow;
+        if (!fieldState) return;
 
         var btn = document.createElement('button');
         btn.id = 'ai-answer-btn';
         btn.textContent = 'AI Answer';
-        btn.style.cssText = 'background: transparent; color: {disabled_color}; border: none; border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: default; font-family: -apple-system, sans-serif; transition: all 0.15s; pointer-events: none; margin-right: 2px;';
+        btn.style.cssText = 'background: transparent; color: {disabled_color}; border: none; border-radius: 4px; padding: 0 1px; margin: 0 -4px 0 0; font-size: 11px; cursor: default; font-family: -apple-system, sans-serif; transition: color 0.15s; pointer-events: none; line-height: 1;';
 
         btn.onclick = function(e) {{
             e.preventDefault();
@@ -845,40 +853,54 @@ def on_editor_load_note(editor):
             pycmd('ai_answer');
         }};
 
-        // Insert before the first icon button (left of pin)
-        var firstIcon = iconsContainer.querySelector('button');
-        if (firstIcon) {{
-            iconsContainer.insertBefore(btn, firstIcon);
-        }} else {{
-            iconsContainer.appendChild(btn);
-        }}
+        // Insert as first child of field-state (left of pin icon)
+        fieldState.insertBefore(btn, fieldState.firstChild);
 
         // Watch Front field for changes to enable/disable
-        function checkFrontField() {{
-            var fields = document.querySelectorAll('.field-container .rich-text-editable, .field-container [contenteditable]');
-            var frontField = fields[0];
-            if (frontField) {{
-                var text = (frontField.innerText || '').trim();
-                if (text.length > 0) {{
-                    btn.style.color = '{btn_color_active}';
-                    btn.style.cursor = 'pointer';
-                    btn.style.pointerEvents = 'auto';
-                    btn.onmouseenter = function() {{ btn.style.color = '{btn_hover}'; }};
-                    btn.onmouseleave = function() {{ btn.style.color = '{btn_color_active}'; }};
-                }} else {{
-                    btn.style.color = '{disabled_color}';
-                    btn.style.cursor = 'default';
-                    btn.style.pointerEvents = 'none';
-                    btn.onmouseenter = null;
-                    btn.onmouseleave = null;
+        function getFrontText() {{
+            // Method 1: Shadow DOM (modern Anki with Svelte components)
+            var fields = document.querySelectorAll('.field-container');
+            if (fields.length > 0) {{
+                var allEls = fields[0].querySelectorAll('*');
+                for (var k = 0; k < allEls.length; k++) {{
+                    if (allEls[k].shadowRoot) {{
+                        var ce = allEls[k].shadowRoot.querySelector('[contenteditable]');
+                        if (ce) return (ce.innerText || '').trim();
+                    }}
                 }}
+            }}
+            // Method 2: Direct contenteditable (older Anki)
+            var editables = document.querySelectorAll('[contenteditable="true"]');
+            if (editables.length > 0) return (editables[0].innerText || '').trim();
+            return '';
+        }}
+
+        var _btnEnabled = false;
+        function checkFrontField() {{
+            // Skip check while generating
+            if (btn.dataset.generating === 'true') return;
+            var text = getFrontText();
+            var shouldEnable = text.length > 0;
+            if (shouldEnable === _btnEnabled) return;
+            _btnEnabled = shouldEnable;
+            if (shouldEnable) {{
+                btn.style.color = '{btn_color_active}';
+                btn.style.cursor = 'pointer';
+                btn.style.pointerEvents = 'auto';
+                btn.onmouseenter = function() {{ btn.style.color = '{btn_hover}'; }};
+                btn.onmouseleave = function() {{ btn.style.color = '{btn_color_active}'; }};
+            }} else {{
+                btn.style.color = '{disabled_color}';
+                btn.style.cursor = 'default';
+                btn.style.pointerEvents = 'none';
+                btn.onmouseenter = null;
+                btn.onmouseleave = null;
             }}
         }}
 
-        // Check periodically
         setInterval(checkFrontField, 500);
         checkFrontField();
     }})();
     """
 
-    QTimer.singleShot(300, lambda: editor.web.eval(js))
+    QTimer.singleShot(500, lambda: editor.web.eval(js))
