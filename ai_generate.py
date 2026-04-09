@@ -1384,8 +1384,19 @@ class AIGenerateWindow(QWidget):
                     return;
                 }
 
+                // Check for rate limit / login popup
+                var dlg = document.querySelector('[role="dialog"]');
+                if (dlg) {
+                    var dlgText = dlg.innerText || '';
+                    if (dlgText.indexOf('question limit') !== -1 || dlgText.indexOf('unverified users') !== -1 || dlgText.indexOf('Sign Up') !== -1) {
+                        clearInterval(pollInterval);
+                        window.ankiGenerateError = 'NEEDS_LOGIN';
+                        return;
+                    }
+                }
+
                 // Check for error banners/alerts on the page
-                var errorBanner = document.querySelector('.MuiAlert-root, [role="alert"], .MuiSnackbar-root');
+                var errorBanner = document.querySelector('.MuiAlert-root, [role="alert"]:not([role="dialog"]), .MuiSnackbar-root');
                 if (errorBanner) {
                     var errText = errorBanner.innerText || errorBanner.textContent || '';
                     if (errText.length > 5) {
@@ -1471,7 +1482,12 @@ class AIGenerateWindow(QWidget):
                 if self._poll_timer:
                     self._poll_timer.stop()
                 self._cleanup_panel()
-                self._on_generation_error(error)
+                if error == 'NEEDS_LOGIN':
+                    self.close()
+                    from .ai_create import show_login_modal
+                    QTimer.singleShot(300, show_login_modal)
+                else:
+                    self._on_generation_error(error)
                 return
 
             # Stream partial cards as they arrive

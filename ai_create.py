@@ -28,7 +28,7 @@ try:
         QTextEdit, QSizePolicy, QGraphicsDropShadowEffect
     )
     from PyQt6.QtCore import Qt, QTimer, QEvent
-    from PyQt6.QtGui import QCursor, QColor, QPainterPath, QRegion, QPainter
+    from PyQt6.QtGui import QCursor, QColor, QPainterPath, QRegion, QPainter, QMovie
     from PyQt6.QtWebEngineWidgets import QWebEngineView
 except ImportError:
     from PyQt5.QtWidgets import (
@@ -36,7 +36,7 @@ except ImportError:
         QTextEdit, QSizePolicy, QGraphicsDropShadowEffect
     )
     from PyQt5.QtCore import Qt, QTimer, QEvent
-    from PyQt5.QtGui import QCursor, QColor, QPainterPath, QRegion, QPainter
+    from PyQt5.QtGui import QCursor, QColor, QPainterPath, QRegion, QPainter, QMovie
     from PyQt5.QtWebEngineWidgets import QWebEngineView
 
 _FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
@@ -91,6 +91,141 @@ _ai_create_timer = None
 
 def _get_package():
     return sys.modules.get('the_ai_panel') or sys.modules.get(__name__.rsplit('.', 1)[0])
+
+
+def show_login_modal():
+    """Show a modal telling the user to sign in to OpenEvidence."""
+    c = ThemeManager.get_palette()
+
+    # Overlay
+    overlay = ModalOverlay(mw)
+    overlay.show()
+    overlay.raise_()
+
+    # Check if GIF exists to determine modal size
+    import os
+    gif_path = os.path.join(os.path.dirname(__file__), "signup_guide.gif")
+    has_gif = os.path.exists(gif_path)
+    modal_height = 480 if has_gif else 280
+
+    # Modal window
+    modal = QWidget(mw)
+    modal.setWindowFlags(
+        Qt.WindowType.Window |
+        Qt.WindowType.FramelessWindowHint |
+        Qt.WindowType.WindowStaysOnTopHint
+    )
+    modal.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+    modal.setFixedSize(500, modal_height)
+    modal.setObjectName("LoginModal")
+    modal.setStyleSheet(f"QWidget#LoginModal {{ background: {c['background']}; border: 1px solid {c['border']}; border-radius: 14px; }}")
+
+    main_layout = QVBoxLayout(modal)
+    main_layout.setContentsMargins(0, 0, 0, 0)
+    main_layout.setSpacing(0)
+
+    # Header bar with X button
+    header_bar = QWidget()
+    header_bar.setFixedHeight(38)
+    hb_layout = QHBoxLayout(header_bar)
+    hb_layout.setContentsMargins(12, 0, 12, 0)
+    hb_layout.addStretch()
+
+    def _close():
+        modal.close()
+        overlay.hide()
+        overlay.deleteLater()
+
+    close_btn = QPushButton("\u2715")
+    close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+    close_btn.setFixedSize(24, 24)
+    close_btn.setStyleSheet(f"""
+        QPushButton {{ background: transparent; color: {c['text_secondary']}; border: none; border-radius: 6px; font-size: 18px; }}
+        QPushButton:hover {{ background: {c['hover']}; color: {c['text']}; }}
+    """)
+    close_btn.clicked.connect(_close)
+    hb_layout.addWidget(close_btn)
+    main_layout.addWidget(header_bar)
+
+    # Divider
+    line = QWidget()
+    line.setFixedHeight(1)
+    line.setStyleSheet(f"background: {c['border']};")
+    main_layout.addWidget(line)
+
+    # Content
+    content = QVBoxLayout()
+    content.setContentsMargins(28, 16, 28, 0)
+    content.setSpacing(10)
+
+    title = QLabel("Weekly question limit reached")
+    title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    title.setStyleSheet(f"color: {c['text']}; font-size: 18px; font-weight: 600; font-family: {_FONT};")
+    content.addWidget(title)
+
+    desc = QLabel("Sign up for <b>free unlimited access</b>. OpenEvidence is 100% free for medical students, doctors, dentists, veterinarians, nurses, and all healthcare professionals.")
+    desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    desc.setWordWrap(True)
+    desc.setStyleSheet(f"color: {c['text_secondary']}; font-size: 13px; font-family: {_FONT}; line-height: 1.4;")
+    content.addWidget(desc)
+
+    # GIF showing how to sign up
+    if has_gif:
+        gif_container = QLabel()
+        gif_container.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        gif_container.setStyleSheet(f"border: 1px solid {c['border']}; border-radius: 8px; padding: 2px;")
+        from aqt.qt import QSize
+        movie = QMovie(gif_path)
+        movie.setScaledSize(QSize(440, 220))
+        gif_container.setMovie(movie)
+        movie.start()
+        content.addWidget(gif_container)
+        mw._login_gif_movie = movie
+
+    main_layout.addLayout(content, 1)
+
+    # "Got it" button
+    bottom = QVBoxLayout()
+    bottom.setContentsMargins(28, 8, 28, 20)
+
+    got_it_btn = QPushButton("Got it")
+    got_it_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+    got_it_btn.setFixedHeight(44)
+    got_it_btn.setStyleSheet(f"""
+        QPushButton {{
+            background: {c['accent']};
+            color: #ffffff;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            font-family: {_FONT};
+        }}
+        QPushButton:hover {{ background: {c['accent_hover']}; }}
+    """)
+    got_it_btn.clicked.connect(_close)
+    bottom.addWidget(got_it_btn)
+
+    main_layout.addLayout(bottom)
+
+    # Rounded corners mask
+    path = QPainterPath()
+    path.addRoundedRect(0.0, 0.0, float(modal.width()), float(modal.height()), 14.0, 14.0)
+    modal.setMask(QRegion(path.toFillPolygon().toPolygon()))
+
+    # Center on main window
+    geo = mw.geometry()
+    x = geo.x() + (geo.width() - modal.width()) // 2
+    y = geo.y() + (geo.height() - modal.height()) // 2
+    modal.move(x, y)
+
+    overlay.show()
+    modal.show()
+    modal.raise_()
+
+    # Prevent GC
+    mw._login_modal = modal
+    mw._login_overlay = overlay
 
 
 def _delete_latest_oe_conversation(panel):
@@ -453,7 +588,18 @@ class AICreateWindow(QWidget):
                     return;
                 }
 
-                var errorBanner = document.querySelector('.MuiAlert-root, [role="alert"], .MuiSnackbar-root');
+                // Check for rate limit / login popup
+                var dlg = document.querySelector('[role="dialog"]');
+                if (dlg) {
+                    var dlgText = dlg.innerText || '';
+                    if (dlgText.indexOf('question limit') !== -1 || dlgText.indexOf('unverified users') !== -1 || dlgText.indexOf('Sign Up') !== -1) {
+                        clearInterval(pollInterval);
+                        window.ankiCreateError = 'NEEDS_LOGIN';
+                        return;
+                    }
+                }
+
+                var errorBanner = document.querySelector('.MuiAlert-root, [role="alert"]:not([role="dialog"]), .MuiSnackbar-root');
                 if (errorBanner) {
                     var errText = errorBanner.innerText || errorBanner.textContent || '';
                     if (errText.length > 5) {
@@ -532,7 +678,15 @@ class AICreateWindow(QWidget):
             if error and isinstance(error, str):
                 _ai_create_timer.stop()
                 _cleanup_create_panel()
-                tooltip("Something went wrong. Try again, and if that doesn't work, try again later.", period=3000)
+                if error == 'NEEDS_LOGIN':
+                    try:
+                        if modal.isVisible():
+                            modal.close()
+                    except RuntimeError:
+                        pass
+                    QTimer.singleShot(300, show_login_modal)
+                else:
+                    tooltip("Something went wrong. Try again, and if that doesn't work, try again later.", period=3000)
                 return
 
             # Stream partial — parse even incomplete tags and fill editor live
@@ -624,6 +778,11 @@ def show_ai_create(editor):
         tooltip("No internet connection. Check your connection and try again.", period=3000)
         return
 
+    from .analytics import is_user_logged_in
+    if not is_user_logged_in():
+        show_login_modal()
+        return
+
     # Create overlay on the editor's parent window
     parent_window = editor.parentWindow
     overlay = ModalOverlay(parent_window)
@@ -697,6 +856,11 @@ def _handle_ai_answer(editor):
 
     if not _has_internet():
         tooltip("No internet connection. Check your connection and try again.", period=3000)
+        return
+
+    from .analytics import is_user_logged_in
+    if not is_user_logged_in():
+        show_login_modal()
         return
 
     prompt = AI_ANSWER_PROMPT.format(question=clean_q)
@@ -796,6 +960,17 @@ def _handle_ai_answer(editor):
                 window.ankiAnswerResult = 'ERROR_TIMEOUT';
                 return;
             }
+            // Check for rate limit / login popup
+            var dlg = document.querySelector('[role="dialog"]');
+            if (dlg) {
+                var dlgText = dlg.innerText || '';
+                if (dlgText.indexOf('question limit') !== -1 || dlgText.indexOf('unverified users') !== -1 || dlgText.indexOf('Sign Up') !== -1) {
+                    clearInterval(pollInterval);
+                    window.ankiAnswerResult = 'NEEDS_LOGIN';
+                    return;
+                }
+            }
+
             var articles = document.querySelectorAll('article.MuiBox-root');
             if (articles.length <= initialCount) return;
             var lastArticle = articles[articles.length - 1];
@@ -859,6 +1034,11 @@ def _handle_ai_answer(editor):
             if final and isinstance(final, str):
                 _ai_answer_timer.stop()
                 _cleanup()
+
+                if final == 'NEEDS_LOGIN':
+                    _reset_btn(editor)
+                    show_login_modal()
+                    return
 
                 if final == 'ERROR_TIMEOUT':
                     _reset_btn(editor)

@@ -327,6 +327,11 @@ def on_webview_did_receive_js_message(handled, message, context):
             from aqt.utils import tooltip
             tooltip("No internet connection. Check your connection and try again.", period=3000)
             return (True, None)
+        from .analytics import is_user_logged_in
+        if not is_user_logged_in():
+            from .ai_create import show_login_modal
+            show_login_modal()
+            return (True, None)
         from .ai_generate import show_ai_generate_dialog
         show_ai_generate_dialog()
         return (True, None)
@@ -739,6 +744,17 @@ def handle_inline_explain(selected_text):
                 return;
             }
 
+            // Check for rate limit / login popup
+            var dlg = document.querySelector('[role="dialog"]');
+            if (dlg) {
+                var dlgText = dlg.innerText || '';
+                if (dlgText.indexOf('question limit') !== -1 || dlgText.indexOf('unverified users') !== -1 || dlgText.indexOf('Sign Up') !== -1) {
+                    clearInterval(pollInterval);
+                    window.ankiInlineResult = 'NEEDS_LOGIN';
+                    return;
+                }
+            }
+
             var articles = document.querySelectorAll('article.MuiBox-root');
             if (articles.length <= initialCount) return;
 
@@ -778,7 +794,9 @@ def handle_inline_explain(selected_text):
             _py_poll_count[0] += 1
             if _py_poll_count[0] > 70:  # 35 seconds max
                 _py_timer.stop()
-                _send_to_reviewer("ERROR_TIMEOUT", True)
+                # Dismiss the explain bubble on timeout
+                if mw.reviewer and hasattr(mw.reviewer, 'web') and mw.reviewer.web:
+                    mw.reviewer.web.eval("if(window.ankiDismissExplain) window.ankiDismissExplain();")
                 _cleanup_panel()
                 return
 
@@ -795,6 +813,14 @@ def handle_inline_explain(selected_text):
 
             if final and isinstance(final, str):
                 _py_timer.stop()
+                if final == 'NEEDS_LOGIN':
+                    _cleanup_panel(clear_chat=True)
+                    # Dismiss the explain bubble/spinner
+                    if mw.reviewer and hasattr(mw.reviewer, 'web') and mw.reviewer.web:
+                        mw.reviewer.web.eval("if(window.ankiDismissExplain) window.ankiDismissExplain();")
+                    from .ai_create import show_login_modal
+                    show_login_modal()
+                    return
                 _send_to_reviewer(final, True)
                 _cleanup_panel(clear_chat=False)
             elif partial and isinstance(partial, str) and partial != _last_sent[0]:
@@ -842,17 +868,24 @@ def add_deck_browser_button():
         # Inject our button into the bottom bar via JS
         js = """
         (function() {
-            var bottomBar = document.querySelector('.bottom-bar') || document.body;
-            // Only inject once
             if (document.getElementById('ai-generate-btn')) return;
             var buttons = document.querySelectorAll('button');
-            var lastBtn = buttons[buttons.length - 1];
-            if (lastBtn) {
-                var btn = document.createElement('button');
-                btn.id = 'ai-generate-btn';
-                btn.textContent = 'AI Generate';
-                btn.onclick = function() { pycmd('ai_generate'); return false; };
-                lastBtn.parentNode.insertBefore(btn, lastBtn.nextSibling);
+            var importBtn = null;
+            for (var i = 0; i < buttons.length; i++) {
+                if (buttons[i].textContent.trim() === 'Import File') {
+                    importBtn = buttons[i];
+                    break;
+                }
+            }
+            var btn = document.createElement('button');
+            btn.id = 'ai-generate-btn';
+            btn.textContent = 'AI Generate';
+            btn.onclick = function() { pycmd('ai_generate'); return false; };
+            if (importBtn) {
+                importBtn.parentNode.insertBefore(btn, importBtn);
+            } else {
+                var lastBtn = buttons[buttons.length - 1];
+                if (lastBtn) lastBtn.parentNode.insertBefore(btn, lastBtn.nextSibling);
             }
         })();
         """

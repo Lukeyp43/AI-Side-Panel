@@ -969,6 +969,9 @@ HIGHLIGHT_BUBBLE_JS = """
         streamDisplayed = 0;
     }
 
+    // Expose globally so Python can dismiss the bubble on errors
+    window.ankiDismissExplain = hideBubble;
+
     // Drag functionality
     let isDragging = false;
     let dragOffsetX = 0;
