@@ -102,9 +102,9 @@ def show_login_modal():
     overlay.show()
     overlay.raise_()
 
-    # Check if GIF exists to determine modal size
+    # Check if signup GIF exists to determine modal size
     import os
-    gif_path = os.path.join(os.path.dirname(__file__), "signup_guide.gif")
+    gif_path = os.path.join(os.path.dirname(__file__), "gifs", "signup_guide.gif")
     has_gif = os.path.exists(gif_path)
     modal_height = 480 if has_gif else 280
 

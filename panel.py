@@ -1140,12 +1140,98 @@ class OpenEvidencePanel(QWidget):
                 print(f"OpenEvidence: Error updating card texts: {e}")
 
 
+class RoundedPixmapLabel(QLabel):
+    """A QLabel that clips its pixmap to a rounded rectangle with smooth
+    antialiased corners. QLabel's stylesheet `border-radius` only rounds the
+    label's background — the pixmap drawn on top still has square corners. This
+    subclass overrides paintEvent to clip drawing to a rounded path so the
+    actual image content has smooth, rounded corners.
+    """
+
+    def __init__(self, radius=12, border_color=None, parent=None):
+        super().__init__(parent)
+        self._radius = radius
+        self._border_color = border_color
+
+    def paintEvent(self, event):
+        try:
+            from PyQt6.QtGui import QPainter, QPainterPath, QPen, QColor
+            from PyQt6.QtCore import QRectF
+        except ImportError:
+            from PyQt5.QtGui import QPainter, QPainterPath, QPen, QColor
+            from PyQt5.QtCore import QRectF
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        rectf = QRectF(self.rect())
+        path = QPainterPath()
+        path.addRoundedRect(rectf, float(self._radius), float(self._radius))
+
+        # Clip to rounded shape, then draw the pixmap
+        painter.setClipPath(path)
+        pix = self.pixmap()
+        if pix is not None and not pix.isNull():
+            painter.drawPixmap(self.rect(), pix)
+
+        # Draw a 1px rounded border on top, if requested
+        if self._border_color:
+            painter.setClipping(False)
+            pen = QPen(QColor(self._border_color))
+            pen.setWidth(1)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(
+                rectf.adjusted(0.5, 0.5, -0.5, -0.5),
+                float(self._radius),
+                float(self._radius),
+            )
+
+        painter.end()
+
+
 class OnboardingDialog(QWidget):
     """Centered onboarding popup with 3 slides, shown over the main Anki window.
     Animates in with a smooth slide-up + fade. The sidebar already has OpenEvidence
     loading in the background while this dialog is visible."""
 
     FONT = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+
+    SLIDES = [
+        {
+            "title": "Welcome",
+            "tagline": "AI for Anki, completely free.",
+            "subtitle": "Generate full decks from your notes. Create cards from any topic. Ask questions and get instant explanations on anything you're studying.\n\nNo payments. No subscriptions. No limits.",
+            "is_welcome": True,
+        },
+        {
+            "title": "Create a Whole Deck",
+            "subtitle": "Paste your notes. Get a free Anki deck in seconds.",
+            "gif": "gifs/ai_generate.gif",
+        },
+        {
+            "title": "Explain Anything",
+            "subtitle": "Highlight a word in any card and click Explain for an instant breakdown.",
+            "gif": "gifs/explain.gif",
+        },
+        {
+            "title": "AI Answers Your Cards",
+            "subtitle": "Type the front of a card. Let the AI fill in the back for you.",
+            "gif": "gifs/ai_answer.gif",
+        },
+        {
+            "title": "Ask a Custom Question",
+            "subtitle": "Hold Cmd, highlight any text, and ask your own follow-up.",
+            "gif": "gifs/ask_question.gif",
+        },
+        {
+            "title": "Found a Bug? Tell Us.",
+            "subtitle": "Bugs and ideas help way more than a bad review. We read every one.",
+            "gif": "gifs/report_bug.gif",
+            "is_final": True,
+        },
+    ]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1216,7 +1302,7 @@ class OnboardingDialog(QWidget):
 
         # The card
         self.card = QWidget()
-        self.card.setFixedSize(540, 500)
+        self.card.setFixedSize(820, 640)
         self.card.setObjectName("obCard")
         self.card.setStyleSheet(f"""
             QWidget#obCard {{
@@ -1235,17 +1321,40 @@ class OnboardingDialog(QWidget):
         card_layout = QVBoxLayout(self.card)
         card_layout.setContentsMargins(0, 0, 0, 0)
 
+        # Track each slide's QMovie so we can restart on slide change and
+        # pause inactive ones (avoid wasted CPU + lets the user see each
+        # GIF from the beginning when they click Continue).
+        self._slide_movies = {}
+
         self.stacked = QStackedWidget()
         card_layout.addWidget(self.stacked)
 
-        self._create_slide_1()
-        self._create_slide_2()
-        self._create_slide_3()
+        for i in range(len(self.SLIDES)):
+            self._create_slide(i)
+
+        # Restart the visible GIF from frame 0 every time the user navigates,
+        # and pause everything else.
+        self.stacked.currentChanged.connect(self._on_slide_changed)
         self.stacked.setCurrentIndex(0)
+        self._on_slide_changed(0)
 
         outer.addWidget(self.card)
 
-    def _make_dots(self, active_idx):
+    def _on_slide_changed(self, new_index):
+        """Restart the GIF for the newly visible slide; pause all others."""
+        for i, movie in self._slide_movies.items():
+            try:
+                if i == new_index:
+                    movie.stop()
+                    movie.start()
+                else:
+                    movie.stop()
+            except Exception:
+                pass
+
+    def _make_dots(self, active_idx, total=None):
+        if total is None:
+            total = len(self.SLIDES) if hasattr(self, 'SLIDES') else 3
         c = ThemeManager.get_palette()
         w = QWidget()
         w.setStyleSheet("background: transparent;")
@@ -1253,7 +1362,7 @@ class OnboardingDialog(QWidget):
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(10)
         h.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        for i in range(3):
+        for i in range(total):
             dot = QLabel()
             if i == active_idx:
                 dot.setFixedSize(24, 6)
@@ -1264,8 +1373,17 @@ class OnboardingDialog(QWidget):
             h.addWidget(dot)
         return w
 
-    def _make_gif(self, gif_name, c):
-        gif_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), gif_name)
+    def _make_gif(self, gif_rel_path, c):
+        """Render a GIF for an onboarding clip with proper HiDPI + aspect-ratio handling.
+
+        Three things differ from the naive QMovie+setScaledContents approach:
+        1. Uses QMovie.setScaledSize() for high-quality scaling (instead of QLabel's
+           per-frame setScaledContents which uses fast/blurry interpolation).
+        2. Targets PHYSICAL pixels (logical × devicePixelRatio) so Retina displays
+           render the GIF crisply instead of upscaling 1x→2x and softening it.
+        3. Respects the GIF's natural aspect ratio so frames aren't squished.
+        """
+        gif_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), gif_rel_path)
         if not os.path.exists(gif_path):
             return None
         try:
@@ -1275,202 +1393,194 @@ class OnboardingDialog(QWidget):
                 from PyQt6.QtGui import QMovie
             except ImportError:
                 from PyQt5.QtGui import QMovie
-        lbl = QLabel()
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet(f"border: 1px solid {c['border']}; border-radius: 12px; background: {c['surface']};")
-        lbl.setFixedHeight(220)
+        try:
+            from PyQt6.QtCore import QSize
+            from PyQt6.QtGui import QGuiApplication
+        except ImportError:
+            from PyQt5.QtCore import QSize
+            from PyQt5.QtGui import QGuiApplication
+
+        # Device pixel ratio for HiDPI rendering (2.0 on Retina, 1.0 otherwise)
+        screen = QGuiApplication.primaryScreen()
+        dpr = screen.devicePixelRatio() if screen else 1.0
+
+        # Read the GIF's native size by jumping to frame 0
         movie = QMovie(gif_path)
-        lbl.setMovie(movie)
-        lbl.setScaledContents(True)
+        movie.jumpToFrame(0)
+        natural = movie.currentPixmap().size()
+
+        # Compute display size that preserves aspect ratio
+        max_w = 732  # available width inside the card (820 - 44*2 margins)
+        target_h = 380
+        if natural.width() > 0 and natural.height() > 0:
+            aspect = natural.width() / natural.height()
+            target_w = int(target_h * aspect)
+            if target_w > max_w:
+                target_w = max_w
+                target_h = int(max_w / aspect)
+        else:
+            target_w = max_w
+
+        # Scale movie frames to PHYSICAL pixels — Qt's QMovie scaling is much
+        # higher quality than QLabel.setScaledContents.
+        movie.setScaledSize(QSize(int(target_w * dpr), int(target_h * dpr)))
+
+        # Use RoundedPixmapLabel so the GIF actually has rounded corners
+        # (a stylesheet border-radius alone doesn't clip pixmap content).
+        lbl = RoundedPixmapLabel(radius=12, border_color=c['border'])
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setFixedSize(target_w, target_h)
+
+        # On each frame, set the pixmap manually with the right DPR so Qt
+        # treats it as a high-resolution asset and renders at logical size.
+        def _on_frame(_=None):
+            pix = movie.currentPixmap()
+            pix.setDevicePixelRatio(dpr)
+            lbl.setPixmap(pix)
+
+        movie.frameChanged.connect(_on_frame)
+        _on_frame()  # set the first frame immediately
         movie.start()
         lbl._movie = movie
         return lbl
 
-    def _make_keycap(self, text, c):
-        """Render a keyboard shortcut as a styled inline keycap."""
-        lbl = QLabel(text)
-        lbl.setStyleSheet(f"""
-            background: {c['surface']};
-            color: {c['text']};
-            border: 1px solid {c['border']};
-            border-radius: 6px;
-            padding: 4px 10px;
-            font-size: 13px;
-            font-weight: 600;
-            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-        """)
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        return lbl
-
-    def _shortcut_row(self, key_text, desc_text, c):
-        """Build a row: [keycap] description"""
-        row = QWidget()
-        row.setStyleSheet("background: transparent;")
-        rl = QHBoxLayout(row)
-        rl.setContentsMargins(0, 0, 0, 0)
-        rl.setSpacing(14)
-        rl.addStretch()
-        rl.addWidget(self._make_keycap(key_text, c))
-        desc = QLabel(desc_text)
-        desc.setStyleSheet(f"color: {c['text_secondary']}; font-size: 14px; font-weight: 400; background: transparent; font-family: {self.FONT};")
-        rl.addWidget(desc)
-        rl.addStretch()
-        return row
-
     # ── Slides ──
 
-    def _create_slide_1(self):
+    def _create_slide(self, index):
         c = ThemeManager.get_palette()
-        mod = "\u2318" if self.is_mac else "Ctrl"
-        mod_word = "Cmd" if self.is_mac else "Ctrl"
+        slide = self.SLIDES[index]
+        total = len(self.SLIDES)
+        is_final = slide.get("is_final", False)
+        is_welcome = slide.get("is_welcome", False)
 
         page = QWidget()
         page.setStyleSheet("background: transparent;")
         lay = QVBoxLayout(page)
-        lay.setContentsMargins(44, 36, 44, 28)
         lay.setSpacing(0)
 
-        # Step label
-        step = QLabel("STEP 1 OF 3")
-        step.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        step.setStyleSheet(f"color: {c['accent']}; font-size: 11px; font-weight: 700; letter-spacing: 2px; background: transparent; font-family: {self.FONT};")
-        lay.addWidget(step)
-        lay.addSpacing(10)
+        # Build the slide content (everything above the button)
+        if is_welcome:
+            self._populate_welcome_slide(lay, slide, c)
+        else:
+            self._populate_feature_slide(lay, slide, c, index)
 
-        title = QLabel("Quick Actions")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet(f"color: {c['text']}; font-size: 28px; font-weight: 700; background: transparent; font-family: {self.FONT};")
-        lay.addWidget(title)
-        lay.addSpacing(8)
+        # ── Continue / Get Started button (shared) ──
+        if is_welcome:
+            btn_text = "Let's Go \u2192"
+        elif is_final:
+            btn_text = "Get Started \u2192"
+        else:
+            btn_text = "Continue"
 
-        sub = QLabel(f"Hold {mod_word} and highlight text on any card")
-        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sub.setWordWrap(True)
-        sub.setStyleSheet(f"color: {c['text_secondary']}; font-size: 14px; background: transparent; font-family: {self.FONT};")
-        lay.addWidget(sub)
-        lay.addSpacing(20)
-
-        gif = self._make_gif("onboarding_1.gif", c)
-        if gif:
-            lay.addWidget(gif)
-            lay.addSpacing(20)
-
-        lay.addWidget(self._shortcut_row(f"{mod}+F", "Add selected text to chat", c))
-        lay.addSpacing(8)
-        lay.addWidget(self._shortcut_row(f"{mod}+R", "Ask a question about it", c))
-
-        lay.addStretch()
-
-        btn = QPushButton("Continue")
+        btn = QPushButton(btn_text)
         btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         btn.setStyleSheet(self._primary_btn(c))
-        btn.clicked.connect(lambda: self.stacked.setCurrentIndex(1))
+        if is_final:
+            btn.clicked.connect(self._complete)
+        else:
+            next_idx = index + 1
+            btn.clicked.connect(lambda _=False, i=next_idx: self.stacked.setCurrentIndex(i))
         lay.addWidget(btn)
-        lay.addSpacing(16)
-        lay.addWidget(self._make_dots(0))
+        lay.addSpacing(14)
+        lay.addWidget(self._make_dots(index, total))
 
         self.stacked.addWidget(page)
 
-    def _create_slide_2(self):
-        c = ThemeManager.get_palette()
+    def _populate_welcome_slide(self, lay, slide, c):
+        """Welcome slide layout — big hero title, accent tagline, body text,
+        all vertically centered between the top of the card and the button."""
+        lay.setContentsMargins(80, 40, 80, 24)
 
-        page = QWidget()
-        page.setStyleSheet("background: transparent;")
-        lay = QVBoxLayout(page)
-        lay.setContentsMargins(44, 36, 44, 28)
-        lay.setSpacing(0)
+        lay.addStretch(1)
 
-        step = QLabel("STEP 2 OF 3")
-        step.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        step.setStyleSheet(f"color: {c['accent']}; font-size: 11px; font-weight: 700; letter-spacing: 2px; background: transparent; font-family: {self.FONT};")
-        lay.addWidget(step)
-        lay.addSpacing(10)
-
-        title = QLabel("Customize Your Setup")
+        # Big hero title
+        title = QLabel(slide["title"])
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet(f"color: {c['text']}; font-size: 28px; font-weight: 700; background: transparent; font-family: {self.FONT};")
+        title.setStyleSheet(
+            f"color: {c['text']}; font-size: 68px; font-weight: 800; "
+            f"background: transparent; font-family: {self.FONT}; letter-spacing: -1px;"
+        )
         lay.addWidget(title)
-        lay.addSpacing(8)
-
-        sub = QLabel("Click the gear icon to adjust shortcuts and templates")
-        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sub.setWordWrap(True)
-        sub.setStyleSheet(f"color: {c['text_secondary']}; font-size: 14px; background: transparent; font-family: {self.FONT};")
-        lay.addWidget(sub)
         lay.addSpacing(20)
 
-        gif = self._make_gif("onboarding_2.gif", c)
-        if gif:
-            lay.addWidget(gif)
-            lay.addSpacing(20)
+        # Tagline (accent color, semibold) — punchy "100% free" hook
+        tagline = QLabel(slide.get("tagline", ""))
+        tagline.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tagline.setWordWrap(True)
+        tagline.setStyleSheet(
+            f"color: {c['accent']}; font-size: 20px; font-weight: 600; "
+            f"background: transparent; font-family: {self.FONT};"
+        )
+        lay.addWidget(tagline)
+        lay.addSpacing(32)
 
-        lay.addWidget(self._shortcut_row("Ctrl+Shift+S", "Explain the current card", c))
+        # Body text — friendly intro
+        body = QLabel(slide["subtitle"])
+        body.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        body.setWordWrap(True)
+        body.setStyleSheet(
+            f"color: {c['text_secondary']}; font-size: 17px; "
+            f"background: transparent; font-family: {self.FONT}; line-height: 1.6;"
+        )
+        lay.addWidget(body)
 
-        lay.addStretch()
+        lay.addStretch(1)
 
-        btn = QPushButton("Continue")
-        btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        btn.setStyleSheet(self._primary_btn(c))
-        btn.clicked.connect(lambda: self.stacked.setCurrentIndex(2))
-        lay.addWidget(btn)
+        # Subtle "Made by" credit — small, low-emphasis
+        credit = QLabel("Made by Luke Pettit")
+        credit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        credit.setStyleSheet(
+            f"color: {c['text_secondary']}; font-size: 12px; "
+            f"background: transparent; font-family: {self.FONT}; opacity: 0.6;"
+        )
+        lay.addWidget(credit)
         lay.addSpacing(16)
-        lay.addWidget(self._make_dots(1))
 
-        self.stacked.addWidget(page)
+    def _populate_feature_slide(self, lay, slide, c, index):
+        """Feature slide layout — step counter, title, subtitle, GIF."""
+        lay.setContentsMargins(44, 32, 44, 24)
 
-    def _create_slide_3(self):
-        c = ThemeManager.get_palette()
-
-        page = QWidget()
-        page.setStyleSheet("background: transparent;")
-        lay = QVBoxLayout(page)
-        lay.setContentsMargins(44, 36, 44, 28)
-        lay.setSpacing(0)
-
-        step = QLabel("STEP 3 OF 3")
+        # Feature step counter — excludes welcome from the numbering
+        feature_total = sum(1 for s in self.SLIDES if not s.get("is_welcome"))
+        feature_num = index  # welcome is index 0, so feature 1 is at index 1
+        step = QLabel(f"STEP {feature_num} OF {feature_total}")
         step.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        step.setStyleSheet(f"color: {c['accent']}; font-size: 11px; font-weight: 700; letter-spacing: 2px; background: transparent; font-family: {self.FONT};")
+        step.setStyleSheet(
+            f"color: {c['accent']}; font-size: 11px; font-weight: 700; "
+            f"letter-spacing: 2px; background: transparent; font-family: {self.FONT};"
+        )
         lay.addWidget(step)
         lay.addSpacing(10)
 
-        title = QLabel("We'd Love Your Feedback")
+        # Title
+        title = QLabel(slide["title"])
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet(f"color: {c['text']}; font-size: 28px; font-weight: 700; background: transparent; font-family: {self.FONT};")
+        title.setStyleSheet(
+            f"color: {c['text']}; font-size: 26px; font-weight: 700; "
+            f"background: transparent; font-family: {self.FONT};"
+        )
         lay.addWidget(title)
-        lay.addSpacing(8)
+        lay.addSpacing(6)
 
-        sub = QLabel("Found a bug or have an idea?\nLet us know \u2014 it helps way more than a bad review!")
+        # Subtitle
+        sub = QLabel(slide["subtitle"])
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setWordWrap(True)
-        sub.setStyleSheet(f"color: {c['text_secondary']}; font-size: 14px; background: transparent; font-family: {self.FONT};")
+        sub.setStyleSheet(
+            f"color: {c['text_secondary']}; font-size: 14px; "
+            f"background: transparent; font-family: {self.FONT};"
+        )
         lay.addWidget(sub)
+        lay.addSpacing(18)
 
-        lay.addSpacing(28)
-
-        feature_btn = QPushButton("\U0001f4a1  Request a Feature")
-        feature_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        feature_btn.setStyleSheet(self._ghost_btn(c))
-        feature_btn.clicked.connect(lambda: webbrowser.open("https://github.com/Lukeyp43/AI-Side-Panel/issues/new?labels=feature%20request"))
-        lay.addWidget(feature_btn)
-        lay.addSpacing(10)
-
-        bug_btn = QPushButton("\U0001f41b  Report a Bug")
-        bug_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        bug_btn.setStyleSheet(self._ghost_btn(c))
-        bug_btn.clicked.connect(lambda: webbrowser.open("https://github.com/Lukeyp43/AI-Side-Panel/issues/new?labels=bug"))
-        lay.addWidget(bug_btn)
+        # GIF (centered horizontally; width adapts to aspect ratio)
+        gif = self._make_gif(slide["gif"], c)
+        if gif:
+            lay.addWidget(gif, alignment=Qt.AlignmentFlag.AlignCenter)
+            if hasattr(gif, "_movie"):
+                self._slide_movies[index] = gif._movie
 
         lay.addStretch()
-
-        start_btn = QPushButton("Get Started \u2192")
-        start_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        start_btn.setStyleSheet(self._primary_btn(c))
-        start_btn.clicked.connect(self._complete)
-        lay.addWidget(start_btn)
-        lay.addSpacing(16)
-        lay.addWidget(self._make_dots(2))
-
-        self.stacked.addWidget(page)
 
     # ── Drawing & Animation ──
 
@@ -1520,5 +1630,50 @@ class OnboardingDialog(QWidget):
             self.move(mw.pos())
 
     def _complete(self):
+        """Tear down the dialog cleanly before deletion.
+
+        On macOS, deleting a frameless WindowStaysOnTopHint dialog inside the
+        click handler that fires it (while QMovies are still emitting
+        frameChanged and an event filter is installed on the parent) crashes
+        Qt's Cocoa platform plugin with:
+            -[_NSAlertPanel showsSuppressionButton]: unrecognized selector
+        The fix is to stop all signals/timers/movies, remove the event filter,
+        then defer deleteLater() to the next event-loop tick.
+        """
+        # Stop all GIF playback so frameChanged signals stop firing into labels
+        for movie in self._slide_movies.values():
+            try:
+                movie.stop()
+            except Exception:
+                pass
+        self._slide_movies.clear()
+
+        # Stop the fade-in timer if it's still running
+        if hasattr(self, "_fade_timer") and self._fade_timer is not None:
+            try:
+                self._fade_timer.stop()
+            except Exception:
+                pass
+
+        # Stop the slide-up animation if it's still running
+        if hasattr(self, "_slide_anim") and self._slide_anim is not None:
+            try:
+                self._slide_anim.stop()
+            except Exception:
+                pass
+
+        # Remove the event filter we installed on the parent — otherwise the
+        # parent may try to dispatch a Resize event to this widget after it
+        # has been deleted, crashing inside libqcocoa.
+        parent = self.parent()
+        if parent is not None:
+            try:
+                parent.removeEventFilter(self)
+            except Exception:
+                pass
+
+        # Hide immediately, but defer the actual deletion to the next event
+        # loop tick so we're not destroying the widget while it's still
+        # processing the click event that called us.
         self.hide()
-        self.deleteLater()
+        QTimer.singleShot(0, self.deleteLater)

@@ -18,6 +18,10 @@ except ImportError:
 from .theme_manager import ThemeManager
 
 
+REVIEW_URL = "https://ankiweb.net/shared/review/1314683963"
+FEATURE_REQUEST_URL = "https://github.com/Lukeyp43/OpenEvidence-AI/issues/new?labels=feature%20request"
+BUG_REPORT_URL = "https://github.com/Lukeyp43/OpenEvidence-AI/issues/new?labels=bug"
+
 
 class SettingsHomeView(QWidget):
     """Settings Home - Main hub for all settings categories"""
@@ -63,18 +67,7 @@ class SettingsHomeView(QWidget):
         cards_layout.setContentsMargins(0, 0, 0, 0)
         cards_layout.setSpacing(12)
 
-        # Card 1: Templates
-        templates_card = self.create_nav_card(
-            title="Templates",
-            icon_svg=f"""<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="10" y="8" width="28" height="32" rx="2" stroke="{icon_color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M16 18h16M16 24h16M16 30h10" stroke="{icon_color}" stroke-width="3" stroke-linecap="round"/>
-            </svg>""",
-            on_click=self.open_templates
-        )
-        cards_layout.addWidget(templates_card)
-
-        # Card 2: Quick Actions
+        # Card 1: Quick Actions
         quick_actions_card = self.create_nav_card(
             title="Quick Actions",
             icon_svg=f"""<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -84,6 +77,27 @@ class SettingsHomeView(QWidget):
             on_click=self.open_quick_actions
         )
         cards_layout.addWidget(quick_actions_card)
+
+        # Card 2: Replay Tutorial
+        replay_tutorial_card = self.create_nav_card(
+            title="Replay Tutorial",
+            icon_svg=f"""<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="24" cy="24" r="19" stroke="{icon_color}" stroke-width="3"/>
+                <path d="M20 16L32 24L20 32V16Z" stroke="{icon_color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>""",
+            on_click=self.replay_tutorial
+        )
+        cards_layout.addWidget(replay_tutorial_card)
+
+        # Card 3: Leave a Review
+        leave_review_card = self.create_nav_card(
+            title="Leave a Review",
+            icon_svg=f"""<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M24 5L29.5 16.5L42 18.5L33 27.5L35.5 40L24 34L12.5 40L15 27.5L6 18.5L18.5 16.5L24 5Z" stroke="{icon_color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>""",
+            on_click=self.leave_review
+        )
+        cards_layout.addWidget(leave_review_card)
 
         content_layout.addWidget(cards_container)
         content_layout.addStretch()
@@ -119,7 +133,7 @@ class SettingsHomeView(QWidget):
         separator_container = QWidget()
         separator_layout = QHBoxLayout(separator_container)
         separator_layout.setContentsMargins(16, 0, 16, 0)
-        
+
         separator = QLabel()
         separator.setFixedSize(1, 12)
         separator.setStyleSheet(f"background: {c['border']};")
@@ -191,7 +205,7 @@ class SettingsHomeView(QWidget):
         card_layout.addWidget(icon_label)
 
         c = ThemeManager.get_palette()
-        
+
         # Title only (no description)
         title_label = QLabel(title)
         title_label.setStyleSheet(f"""
@@ -239,7 +253,7 @@ class SettingsHomeView(QWidget):
 
         # Set styling to mimic a hoverable button
         c = ThemeManager.get_palette()
-        
+
         # Set styling to mimic a hoverable button
         # Using a subtle background change and text color change on hover
         container.setStyleSheet(f"""
@@ -306,20 +320,30 @@ class SettingsHomeView(QWidget):
 
         return container
 
-    def open_templates(self):
-        """Navigate to Templates view"""
-        if self.parent_panel and hasattr(self.parent_panel, 'show_templates_view'):
-            self.parent_panel.show_templates_view()
-
     def open_quick_actions(self):
         """Navigate to Quick Actions view"""
         if self.parent_panel and hasattr(self.parent_panel, 'show_quick_actions_view'):
             self.parent_panel.show_quick_actions_view()
 
+    def replay_tutorial(self):
+        """Re-show the onboarding dialog (3-slide tutorial)."""
+        try:
+            from aqt import mw
+            from .panel import OnboardingDialog
+            dialog = OnboardingDialog(mw)
+            dialog.show_animated()
+            mw._onboarding_dialog = dialog  # prevent GC
+        except Exception as e:
+            print(f"[the_ai_panel] Failed to replay tutorial: {e}")
+
+    def leave_review(self):
+        """Open AnkiWeb review page"""
+        webbrowser.open(REVIEW_URL)
+
     def request_feature(self):
         """Open feature request URL"""
-        webbrowser.open("https://github.com/Lukeyp43/OpenEvidence-AI/issues/new?labels=feature%20request")
+        webbrowser.open(FEATURE_REQUEST_URL)
 
     def report_bug(self):
         """Open bug report URL"""
-        webbrowser.open("https://github.com/Lukeyp43/OpenEvidence-AI/issues/new?labels=bug")
+        webbrowser.open(BUG_REPORT_URL)
