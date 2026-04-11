@@ -21,7 +21,6 @@ HIGHLIGHT_BUBBLE_JS = """
     let bubble = null;
     let currentState = 'default'; // 'default' or 'input'
     let selectedText = '';
-    let cmdKeyHeld = false;
     let contextText = ''; // Store context text for the pill
     let selectionStartRect = null; // Start position of current selection
     let selectionRect = null; // Full selection bounding rect
@@ -77,123 +76,6 @@ HIGHLIGHT_BUBBLE_JS = """
         // Verify exact count match
         return Object.keys(pressedKeys).length === configKeys.length;
     }
-
-    // Handle shortcut actions
-    function handleAskQuestion(e) {
-        e.preventDefault();
-        e.stopImmediatePropagation();  // More aggressive than stopPropagation
-        
-        const selection = window.getSelection();
-        const text = selection.toString().trim();
-        
-        if (text && text.length > 0) {
-            selectedText = text;
-            const range = selection.getRangeAt(0);
-            const rect = range.getBoundingClientRect();
-            bubble.style.display = 'block';
-            renderInputState();
-            setTimeout(() => positionBubble(rect), 0);
-        } else if (currentState === 'default' || bubble.style.display === 'none') {
-            selectedText = '';
-            const centerRect = {
-                left: window.innerWidth / 2,
-                right: window.innerWidth / 2,
-                top: window.innerHeight / 3,
-                bottom: window.innerHeight / 3,
-                width: 0,
-                height: 0
-            };
-            bubble.style.display = 'block';
-            renderInputState();
-            setTimeout(() => positionBubble(centerRect), 0);
-        }
-    }
-
-    function handleAddToChatShortcut(e) {
-        e.preventDefault();
-        e.stopImmediatePropagation();  // More aggressive than stopPropagation
-        
-        const selection = window.getSelection();
-        const text = selection.toString().trim();
-        
-        if (text && text.length > 0) {
-            selectedText = text;
-            handleAddToChat();  // Call the actual handler function
-        }
-    }
-
-    // Track Cmd/Ctrl key state for quick actions trigger
-    document.addEventListener('keydown', (e) => {
-        var isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-        if (isMac ? (e.metaKey || e.key === 'Meta') : (e.ctrlKey || e.key === 'Control')) {
-            cmdKeyHeld = true;
-        }
-    }, true);
-
-    // Main keyboard shortcut handler - completely rewritten
-    // Use capture phase with highest priority on window (not document)
-    window.addEventListener('keydown', function(e) {
-        // Get shortcuts from config
-        var askQuestionKeys = (window.quickActionsConfig && window.quickActionsConfig.askQuestion && window.quickActionsConfig.askQuestion.keys) || ['Meta', 'R'];
-        var addToChatKeys = (window.quickActionsConfig && window.quickActionsConfig.addToChat && window.quickActionsConfig.addToChat.keys) || ['Meta', 'F'];
-
-        // Early check: if Control key is pressed and it's part of our shortcuts, prevent default immediately
-        var isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-        var hasControl = isMac ? e.ctrlKey : (e.ctrlKey || e.metaKey);
-        
-        if (hasControl) {
-            // Check if this Control combination matches any of our shortcuts
-            var askHasControl = askQuestionKeys.indexOf('Control') !== -1;
-            var chatHasControl = addToChatKeys.indexOf('Control') !== -1;
-            
-            if (askHasControl || chatHasControl) {
-                // Prevent default early for Control combinations to stop browser shortcuts
-                e.preventDefault();
-            }
-        }
-
-        // Debug logging
-        console.log('Quick Actions keydown:', {
-            key: e.key,
-            code: e.code,
-            ctrlKey: e.ctrlKey,
-            metaKey: e.metaKey,
-            shiftKey: e.shiftKey,
-            altKey: e.altKey,
-            askQuestionKeys: askQuestionKeys,
-            addToChatKeys: addToChatKeys,
-            checkResult: {
-                ask: checkShortcut(e, askQuestionKeys),
-                chat: checkShortcut(e, addToChatKeys)
-            }
-        });
-
-        // Check Ask Question shortcut
-        if (checkShortcut(e, askQuestionKeys)) {
-            console.log('Ask Question match!');
-            handleAskQuestion(e);
-            return false;  // Return false as additional prevention
-        }
-
-        // Check Add to Chat shortcut
-        if (checkShortcut(e, addToChatKeys)) {
-            console.log('Add to Chat match!');
-            handleAddToChatShortcut(e);
-            return false;  // Return false as additional prevention
-        }
-    }, true);  // Capture phase - intercept before anyone else
-
-    document.addEventListener('keyup', (e) => {
-        var isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-        if (e.key === 'Meta' || e.key === 'Command' || e.key === 'Control') {
-            cmdKeyHeld = false;
-        }
-    });
-
-    // Also track when window loses focus (releases all keys)
-    window.addEventListener('blur', () => {
-        cmdKeyHeld = false;
-    });
 
     // Create the bubble element — minimal container, children handle their own styling
     function createBubble() {
@@ -277,88 +159,6 @@ HIGHLIGHT_BUBBLE_JS = """
         btn.addEventListener('click', (e) => { e.stopPropagation(); handleExplain(); });
         btn.addEventListener('mouseup', (e) => { e.stopPropagation(); });
         btn.addEventListener('mousedown', (e) => { e.stopPropagation(); });
-    }
-
-    // Quick actions state — Add to Chat / Ask Question buttons (shown on Cmd+highlight)
-    function renderQuickActionsState() {
-        currentState = 'quickactions';
-        bubble.style.boxShadow = 'none';
-        bubble.style.background = 'var(--oa-background)';
-        bubble.style.border = '1px solid var(--oa-border)';
-        bubble.style.borderRadius = '6px';
-        bubble.style.padding = '4px';
-        bubble.style.overflow = 'hidden';
-
-        var cfg = window.quickActionsConfig || {};
-        var addDisplay = (cfg.addToChat && cfg.addToChat.display) || '\u2318F';
-        var askDisplay = (cfg.askQuestion && cfg.askQuestion.display) || '\u2318R';
-
-        var buttons = '';
-        if (cfg.addToChatEnabled !== false) {
-            buttons += `
-                <button id="add-to-chat-btn" style="
-                    background: transparent; border: none; box-shadow: none;
-                    color: var(--oa-text);
-                    padding: 2px 8px; cursor: pointer; font-size: 12px; font-weight: 500;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    display: inline-flex; align-items: center; gap: 6px;
-                    transition: all 0.15s ease; border-radius: 3px; white-space: nowrap;
-                    line-height: 1; margin: 0;
-                ">
-                    <span>Add to Chat</span>
-                    <span style="font-size: 10px; color: var(--oa-text-secondary); font-weight: 400;">${addDisplay}</span>
-                </button>`;
-        }
-        if (cfg.addToChatEnabled !== false && cfg.askQuestionEnabled !== false) {
-            buttons += '<div style="width: 1px; height: 14px; background-color: var(--oa-border); margin: 0;"></div>';
-        }
-        if (cfg.askQuestionEnabled !== false) {
-            buttons += `
-                <button id="ask-question-btn" style="
-                    background: transparent; border: none; box-shadow: none;
-                    color: var(--oa-text);
-                    padding: 2px 8px; cursor: pointer; font-size: 12px; font-weight: 500;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    display: inline-flex; align-items: center; gap: 6px;
-                    transition: all 0.15s ease; border-radius: 3px; white-space: nowrap;
-                    line-height: 1; margin: 0;
-                ">
-                    <span>Ask Question</span>
-                    <span style="font-size: 10px; color: var(--oa-text-secondary); font-weight: 400;">${askDisplay}</span>
-                </button>`;
-        }
-
-        bubble.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 1px; line-height: 1; margin: 0; padding: 0;">
-                ${buttons}
-            </div>
-        `;
-
-        var atcBtn = bubble.querySelector('#add-to-chat-btn');
-        if (atcBtn) {
-            atcBtn.addEventListener('mouseenter', () => { atcBtn.style.background = 'var(--oa-hover)'; });
-            atcBtn.addEventListener('mouseleave', () => { atcBtn.style.background = 'transparent'; });
-            atcBtn.addEventListener('click', (e) => { e.stopPropagation(); handleAddToChat(); });
-            atcBtn.addEventListener('mouseup', (e) => { e.stopPropagation(); });
-            atcBtn.addEventListener('mousedown', (e) => { e.stopPropagation(); });
-        }
-        var aqBtn = bubble.querySelector('#ask-question-btn');
-        if (aqBtn) {
-            aqBtn.addEventListener('mouseenter', () => { aqBtn.style.background = 'var(--oa-hover)'; });
-            aqBtn.addEventListener('mouseleave', () => { aqBtn.style.background = 'transparent'; });
-            aqBtn.addEventListener('click', (e) => { e.stopPropagation(); renderInputState(); });
-            aqBtn.addEventListener('mouseup', (e) => { e.stopPropagation(); });
-            aqBtn.addEventListener('mousedown', (e) => { e.stopPropagation(); });
-        }
-    }
-
-    // Show quick actions bubble (Cmd+highlight)
-    function showQuickActionsBubble(rect, text) {
-        selectedText = text;
-        selectionRect = rect;
-        renderQuickActionsState();
-        bubble.style.display = 'block';
-        setTimeout(() => positionBubble(rect), 0);
     }
 
     // Loading state — tab morphs in place: icon becomes spinner, text becomes "Thinking"
@@ -564,338 +364,13 @@ HIGHLIGHT_BUBBLE_JS = """
         window.ankiStreamExplainText(text, true);
     };
 
-    function renderInputState() {
-        currentState = 'input';
-        resetBubbleStyle();
-        // Add shadow back for the input bubble so it stands out
-        bubble.style.boxShadow = '0 4px 12px var(--oa-shadow)';
-        
-        bubble.innerHTML = `
-            <div style="
-                display: flex;
-                flex-direction: column;
-                padding: 0px;
-                gap: 0px;
-                min-width: 280px;
-                max-width: 380px;
-                position: relative;
-                background: var(--oa-surface);
-                border: 1px solid var(--oa-border);
-                border-radius: 10px;
-            ">
-                <div style="display: flex; align-items: flex-start; gap: 4px; padding: 7px 6px 6px 8px;">
-                    <textarea
-                        id="question-input"
-                        placeholder="Ask a question..."
-                        rows="1"
-                        style="
-                            background: transparent;
-                            border: none;
-                            color: var(--oa-text);
-                            padding: 0;
-                            font-size: 13px;
-                            font-weight: 500;
-                            outline: none;
-                            flex: 1;
-                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                            resize: none;
-                            overflow-y: auto;
-                            min-height: 10px;
-                            max-height: 100px;
-                            line-height: 1.3;
-                            word-wrap: break-word;
-                            margin: 0;
-                        "
-                    ></textarea>
-                    <button id="close-btn" style="
-                        appearance: none;
-                        -webkit-appearance: none;
-                        background: transparent;
-                        border: none;
-                        box-shadow: none;
-                        outline: none;
-                        color: var(--oa-text-secondary);
-                        cursor: pointer;
-                        font-size: 13px;
-                        padding: 0;
-                        width: 18px;
-                        height: 18px;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        transition: all 0.15s ease;
-                        line-height: 1;
-                        flex-shrink: 0;
-                        margin: 0;
-                        margin-left: auto;
-                        margin-right: -1px;
-                        border-radius: 0;
-                    ">✕</button>
-                </div>
-
-                <div style="display: flex; justify-content: space-between; align-items: center; margin: 0; padding: 0 6px 6px 8px;">
-                    <div id="context-pill" style="
-                        display: flex;
-                        align-items: center;
-                        gap: 6px;
-                        background: var(--oa-hover);
-                        border: 1px dashed var(--oa-border);
-                        border-radius: 12px;
-                        padding: 2px 8px;
-                        height: 20px;
-                        box-sizing: border-box;
-                        font-size: 10px;
-                        color: var(--oa-text-secondary);
-                        cursor: pointer;
-                        transition: all 0.15s ease;
-                        max-width: 180px;
-                        white-space: nowrap;
-                        overflow: hidden;
-                    ">
-                        <span id="context-text" style="
-                            overflow: hidden;
-                            text-overflow: ellipsis;
-                            line-height: 1.2;
-                        ">Select text +</span>
-                        <button id="context-clear" style="
-                            display: none;
-                            background: transparent;
-                            border: none;
-                            color: inherit;
-                            cursor: pointer;
-                            font-size: 10px;
-                            padding: 0;
-                            width: 10px;
-                            height: 10px;
-                            flex-shrink: 0;
-                            line-height: 1;
-                            opacity: 0.7;
-                        ">✕</button>
-                    </div>
-                    <button id="submit-btn" style="
-                        background: var(--oa-accent);
-                        border: none;
-                        color: #ffffff;
-                        padding: 0;
-                        cursor: pointer;
-                        border-radius: 50%;
-                        font-size: 13px;
-                        font-weight: 600;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        transition: all 0.15s ease;
-                        width: 19px;
-                        height: 19px;
-                        flex-shrink: 0;
-                        margin: 0;
-                    "><svg width="10" height="11" viewBox="0 0 10 11" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 1.5V9.5M5 1.5L2 4.5M5 1.5L8 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-                </div>
-            </div>
-        `;
-
-        const input = bubble.querySelector('#question-input');
-        const submitBtn = bubble.querySelector('#submit-btn');
-        const closeBtn = bubble.querySelector('#close-btn');
-        const contextPill = bubble.querySelector('#context-pill');
-        const contextTextSpan = bubble.querySelector('#context-text');
-        const contextClearBtn = bubble.querySelector('#context-clear');
-
-        // Auto-resize textarea as user types
-        function autoResize() {
-            input.style.height = 'auto';
-            input.style.height = Math.min(input.scrollHeight, 100) + 'px';
-        }
-
-        // Update context pill based on contextText
-        function updateContextPill() {
-            if (contextText) {
-                // State B: Active (Selection)
-                const truncated = contextText.length > 9 ? contextText.substring(0, 9) + '...' : contextText;
-                contextTextSpan.textContent = '"' + truncated + '"';
-                contextClearBtn.style.display = 'block';
-
-                // Style changes with glow effect to show selection
-                contextPill.style.borderStyle = 'solid';
-                contextPill.style.borderColor = 'rgba(59, 130, 246, 0.6)'; // Keep accent semi-transparent (hard to do with vars unless we split RGB)
-                contextPill.style.color = 'var(--oa-text)';
-                contextPill.style.background = 'rgba(59, 130, 246, 0.1)';
-                contextPill.style.boxShadow = '0 0 8px rgba(59, 130, 246, 0.4)';
-            } else {
-                // State A: Empty (Default)
-                contextTextSpan.textContent = 'Select text +';
-                contextClearBtn.style.display = 'none';
-
-                // Reset styles
-                contextPill.style.borderStyle = 'dashed';
-                contextPill.style.borderColor = 'var(--oa-border)';
-                contextPill.style.color = 'var(--oa-text-secondary)';
-                contextPill.style.background = 'var(--oa-hover)';
-                contextPill.style.boxShadow = 'none';
-            }
-        }
-
-        // Clear context
-        function clearContext() {
-            contextText = '';
-            updateContextPill();
-        }
-
-        // Focus the input
-        setTimeout(() => input.focus(), 0);
-
-        // Initialize context with selectedText if available
-        if (selectedText && !contextText) {
-            contextText = selectedText;
-        }
-
-        // Initialize context pill
-        updateContextPill();
-
-        // Auto-resize on input
-        input.addEventListener('input', autoResize);
-
-        // Submit on Enter key (without Shift)
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmitQuestion();
-            }
-        });
-
-        // Hover effect for submit button
-        submitBtn.addEventListener('mouseenter', () => {
-            submitBtn.style.backgroundColor = 'var(--oa-accent-hover)';
-        });
-        submitBtn.addEventListener('mouseleave', () => {
-            submitBtn.style.backgroundColor = 'var(--oa-accent)';
-        });
-
-        // Hover effect for close button
-        closeBtn.addEventListener('mouseenter', () => {
-            closeBtn.style.color = 'var(--oa-text)';
-        });
-        closeBtn.addEventListener('mouseleave', () => {
-            closeBtn.style.color = 'var(--oa-text-secondary)';
-        });
-
-        // Close button handler
-        closeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            hideBubble();
-        });
-        closeBtn.addEventListener('mouseup', (e) => {
-            e.stopPropagation();
-        });
-        closeBtn.addEventListener('mousedown', (e) => {
-            e.stopPropagation();
-        });
-
-        // Click handler for submit button
-        submitBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            handleSubmitQuestion();
-        });
-        // Prevent mouseup/mousedown from bubbling to document level
-        submitBtn.addEventListener('mouseup', (e) => {
-            e.stopPropagation();
-        });
-        submitBtn.addEventListener('mousedown', (e) => {
-            e.stopPropagation();
-        });
-
-        // Context pill click handler (State A: show hint)
-        contextPill.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (!contextText) {
-                // Show hint
-                const originalText = contextTextSpan.textContent;
-                contextTextSpan.textContent = 'Highlight text on page';
-                setTimeout(() => {
-                    if (!contextText) {
-                        contextTextSpan.textContent = originalText;
-                    }
-                }, 1500);
-            }
-        });
-
-        // Context clear button handler
-        contextClearBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            clearContext();
-        });
-        contextClearBtn.addEventListener('mouseup', (e) => {
-            e.stopPropagation();
-        });
-        contextClearBtn.addEventListener('mousedown', (e) => {
-            e.stopPropagation();
-        });
-
-        // Listen for text selection while bubble is open
-        const selectionHandler = () => {
-            const selection = window.getSelection();
-            const text = selection.toString().trim();
-            if (text && text.length > 0 && currentState === 'input') {
-                contextText = text;
-                updateContextPill();
-            }
-        };
-        document.addEventListener('mouseup', selectionHandler);
-
-        // Clean up listener when bubble is hidden
-        const originalHideBubble = hideBubble;
-        window.hideBubbleWithCleanup = function() {
-            document.removeEventListener('mouseup', selectionHandler);
-            originalHideBubble();
-        };
-    }
-
-    // Handle "Add to Chat" action
-    function handleAddToChat() {
-        console.log('Anki: Add to Chat clicked, text:', selectedText);
-        // Send message to Python
-        pycmd('openevidence:add_context:' + encodeURIComponent(selectedText));
-        hideBubble();
-    }
-
-    // Handle question submission
-    function handleSubmitQuestion() {
-        const input = bubble.querySelector('#question-input');
-        const query = input.value.trim();
-
-        if (query) {
-            // Use contextText if available, otherwise use selectedText
-            const finalContext = contextText || selectedText;
-            console.log('Anki: Question submitted:', query, 'Context:', finalContext);
-            // Send message to Python with format: query|context
-            pycmd('openevidence:ask_query:' + encodeURIComponent(query) + '|' + encodeURIComponent(finalContext));
-            hideBubble();
-            // Clear context after submission
-            contextText = '';
-        }
-    }
-
     // Position the bubble relative to the selection
     function positionBubble(rect) {
         const bubbleHeight = bubble.offsetHeight;
         const bubbleWidth = bubble.offsetWidth;
         const margin = 10;
 
-        if (currentState === 'quickactions') {
-            // Quick actions: position below selection, right-aligned
-            const padding = 8;
-            let left = rect.right - bubbleWidth;
-            if (left < margin) left = margin;
-            if (left + bubbleWidth > window.innerWidth - margin) {
-                left = window.innerWidth - bubbleWidth - margin;
-            }
-            let top = rect.bottom + padding;
-            if (top + bubbleHeight > window.innerHeight) {
-                top = rect.top - bubbleHeight - padding;
-            }
-            bubble.style.left = (left + window.scrollX) + 'px';
-            bubble.style.top = (top + window.scrollY) + 'px';
-        } else if ((currentState === 'default' || currentState === 'loading') && selectionStartRect) {
+        if ((currentState === 'default' || currentState === 'loading') && selectionStartRect) {
             // Tab mode: position at the START of the selection, directly above
             // Bottom of tab flush with top of selection (like a browser tab)
             let left = selectionStartRect.left;
@@ -1041,16 +516,13 @@ HIGHLIGHT_BUBBLE_JS = """
                 selectionStartRect = startRange.getBoundingClientRect();
 
                 var cfg = window.quickActionsConfig || {};
-                if (cmdKeyHeld) {
-                    // Cmd+highlight → show Add to Chat / Ask Question
-                    showQuickActionsBubble(rect, text);
-                } else if (cfg.explainEnabled !== false) {
-                    // Normal highlight → show Explain tab
+                if (cfg.explainEnabled !== false) {
+                    // Show Explain tab
                     showBubble(rect, text);
                 }
             } else {
                 // No text selected - hide bubble if in default state and clicking outside
-                if ((currentState === 'default' || currentState === 'quickactions') && !bubble.contains(e.target)) {
+                if (currentState === 'default' && !bubble.contains(e.target)) {
                     hideBubble();
                 }
             }
@@ -1084,34 +556,6 @@ def inject_highlight_bubble(html, card, context):
         # Load shortcuts from config
         from aqt import mw
         config = mw.addonManager.getConfig(ADDON_NAME) or {}
-        quick_actions = config.get("quick_actions", {
-            "add_to_chat": {"keys": ["Meta", "F"]},
-            "ask_question": {"keys": ["Meta", "R"]}
-        })
-
-        # Format shortcuts for JavaScript
-        add_to_chat_keys = quick_actions["add_to_chat"]["keys"]
-        ask_question_keys = quick_actions["ask_question"]["keys"]
-        highlight_modifier = config.get("highlight_modifier", "none")
-
-        # Create display text (e.g., "⌘F" or "Ctrl+Shift+F")
-        def format_shortcut_display(keys):
-            display_keys = []
-            for key in keys:
-                if key == "Meta":
-                    display_keys.append("⌘")
-                elif key == "Control":
-                    display_keys.append("Ctrl")
-                elif key == "Shift":
-                    display_keys.append("Shift")
-                elif key == "Alt":
-                    display_keys.append("Alt")
-                else:
-                    display_keys.append(key)
-            return "".join(display_keys) if "⌘" in display_keys else "+".join(display_keys)
-
-        add_to_chat_display = format_shortcut_display(add_to_chat_keys)
-        ask_question_display = format_shortcut_display(ask_question_keys)
 
         # Prepend config and append main script
         config_js = f"""
@@ -1119,17 +563,7 @@ def inject_highlight_bubble(html, card, context):
         if (!window.quickActionsConfig) {{
             window.quickActionsConfig = {{}};
         }}
-        window.quickActionsConfig.addToChat = {{
-            keys: {add_to_chat_keys},
-            display: "{add_to_chat_display}"
-        }};
-        window.quickActionsConfig.askQuestion = {{
-            keys: {ask_question_keys},
-            display: "{ask_question_display}"
-        }};
         window.quickActionsConfig.explainEnabled = {str(config.get('explain_enabled', True)).lower()};
-        window.quickActionsConfig.addToChatEnabled = {str(config.get('add_to_chat_enabled', True)).lower()};
-        window.quickActionsConfig.askQuestionEnabled = {str(config.get('ask_question_enabled', True)).lower()};
         </script>
         """
 

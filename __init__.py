@@ -1,5 +1,6 @@
 import sys
 import socket
+from datetime import datetime
 import aqt
 from aqt import mw, gui_hooks
 from aqt.qt import *
@@ -7,7 +8,7 @@ from aqt.qt import *
 from .panel import CustomTitleBar, OpenEvidencePanel, OnboardingDialog
 from .utils import clean_html_text
 from .reviewer_highlight import setup_highlight_hooks
-from .analytics import init_analytics, try_send_daily_analytics, track_add_to_chat, track_ask_question, track_anki_open
+from .analytics import init_analytics, try_send_daily_analytics, track_anki_open
 from .utils import ADDON_NAME
 
 try:
@@ -169,9 +170,18 @@ class BookIconOverlay(QWidget):
         try:
             config = mw.addonManager.getConfig(ADDON_NAME) or {}
             config["book_icon_tutorial_done"] = True
+            # Onboarding = user clicked the book icon (first interaction)
+            config["onboarding_completed"] = True
             mw.addonManager.writeConfig(ADDON_NAME, config)
         except Exception as e:
             print(f"AI Panel: Error saving book icon flag: {e}")
+
+        try:
+            from .analytics import track_onboarding_completed
+            track_onboarding_completed()
+        except Exception:
+            pass
+
         self.hide()
         self.deleteLater()
 
@@ -182,60 +192,19 @@ class BookIconOverlay(QWidget):
 def _show_onboarding_dialog():
     """Show the centered onboarding dialog over the main window."""
     config = mw.addonManager.getConfig(ADDON_NAME) or {}
-    if config.get("onboarding_completed", False):
+    analytics = config.get("analytics", {})
+    # Don't show again if user already completed the tutorial
+    if analytics.get("tutorial_status") == "completed":
         return
-    # Mark onboarding done now (panel is already loaded)
-    config["onboarding_completed"] = True
+
+    # Record when the tutorial started so we can measure duration on completion
+    analytics["tutorial_start_time"] = datetime.now().isoformat()
+    config["analytics"] = analytics
     mw.addonManager.writeConfig(ADDON_NAME, config)
-    try:
-        from .analytics import track_onboarding_completed
-        track_onboarding_completed()
-    except Exception:
-        pass
 
     dialog = OnboardingDialog(mw)
     dialog.show_animated()
     mw._onboarding_dialog = dialog  # prevent GC
-
-
-def ensure_platform_defaults():
-    """
-    Ensure quick_actions have platform-appropriate defaults.
-    On Mac: Meta (⌘) + F/R
-    On Windows/Linux: Control + F/R
-    """
-    config = mw.addonManager.getConfig(ADDON_NAME) or {}
-
-    # Check if quick_actions needs platform-specific defaults
-    quick_actions = config.get("quick_actions", {})
-    needs_update = False
-
-    # If no quick_actions config exists, or it's using the wrong modifier for this platform
-    if not quick_actions:
-        needs_update = True
-    else:
-        # Check if the modifiers match the platform
-        add_keys = quick_actions.get("add_to_chat", {}).get("keys", [])
-        if IS_MAC and "Control" in add_keys and "Meta" not in add_keys:
-            # Mac but using Control - switch to Meta
-            needs_update = True
-        elif not IS_MAC and "Meta" in add_keys and "Control" not in add_keys:
-            # Windows/Linux but using Meta - switch to Control
-            needs_update = True
-
-    if needs_update:
-        if IS_MAC:
-            config["quick_actions"] = {
-                "add_to_chat": {"keys": ["Meta", "F"]},
-                "ask_question": {"keys": ["Meta", "R"]}
-            }
-        else:
-            config["quick_actions"] = {
-                "add_to_chat": {"keys": ["Control", "F"]},
-                "ask_question": {"keys": ["Control", "R"]}
-            }
-        mw.addonManager.writeConfig(ADDON_NAME, config)
-        print(f"OpenEvidence: Set platform-appropriate quick action defaults for {'Mac' if IS_MAC else 'Windows/Linux'}")
 
 
 def create_dock_widget():
@@ -359,32 +328,6 @@ def on_webview_did_receive_js_message(handled, message, context):
                     return (True, None)
         return (True, None)
 
-    # Handle highlight bubble messages
-    if message.startswith("openevidence:add_context:"):
-        # Extract the selected text
-        selected_text = message.replace("openevidence:add_context:", "", 1)
-        try:
-            from urllib.parse import unquote
-            selected_text = unquote(selected_text)
-        except:
-            pass
-        handle_add_context(selected_text)
-        return (True, None)
-
-    if message.startswith("openevidence:ask_query:"):
-        # Extract query and context
-        data = message.replace("openevidence:ask_query:", "", 1)
-        try:
-            from urllib.parse import unquote
-            parts = data.split("|", 1)
-            if len(parts) == 2:
-                query = unquote(parts[0])
-                context = unquote(parts[1])
-                handle_ask_query(query, context)
-        except:
-            pass
-        return (True, None)
-
     # Handle opening a URL in the system browser
     if message.startswith("openurl:"):
         url = message.replace("openurl:", "", 1)
@@ -455,165 +398,15 @@ def store_current_card_text(card):
         is_showing_answer = False
 
 
-def handle_add_context(selected_text):
-    """Handle 'Add to Chat' action - populate AI Panel search with selected text"""
-    global dock_widget
-
-    # Track Add to Chat usage
-    track_add_to_chat()
-
-    # Make sure the panel is created and visible
-    if dock_widget is None:
-        create_dock_widget()
-
-    # Show the panel if hidden
-    if not dock_widget.isVisible():
-        dock_widget.show()
-        dock_widget.raise_()
-
-    # Get the panel widget
-    panel = dock_widget.widget()
-    if panel and hasattr(panel, 'web'):
-        # Ensure we're on the web view (not settings)
-        if hasattr(panel, 'show_web_view'):
-            panel.show_web_view()
-
-        # Inject the text into the OpenEvidence search box
-        # Priority: 1) Follow-up input (if active conversation), 2) Main search input
-        js_code = """
-        (function() {
-            var newText = %s;
-            var searchInput = null;
-
-            // First, check for follow-up input (indicates active conversation)
-            // Look for input with "follow-up" in placeholder
-            var followUpInput = document.querySelector('input[placeholder*="follow-up"], input[placeholder*="Follow-up"], textarea[placeholder*="follow-up"]');
-
-            if (followUpInput) {
-                // Active conversation - use follow-up input
-                searchInput = followUpInput;
-                console.log('Anki: Found follow-up input, using that');
-            } else {
-                // No active conversation - use main search input
-                searchInput = document.querySelector('input[placeholder*="medical"], input[placeholder*="question"], textarea, input[type="text"]');
-                console.log('Anki: No follow-up input, using main search');
-            }
-
-            if (searchInput) {
-                var existingText = searchInput.value.trim();
-
-                // Append to existing text if present, otherwise just set new text
-                var finalText = existingText ? existingText + ' ' + newText : newText;
-
-                // Use native setter for React compatibility
-                var nativeSetter = Object.getOwnPropertyDescriptor(
-                    searchInput.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
-                    'value'
-                ).set;
-                nativeSetter.call(searchInput, finalText);
-
-                // Dispatch events
-                searchInput.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: finalText }));
-                searchInput.dispatchEvent(new Event('change', { bubbles: true }));
-
-                // Focus the input
-                searchInput.focus();
-
-                console.log('Anki: Added context to search box');
-            } else {
-                console.log('Anki: Could not find search input');
-            }
-        })();
-        """ % repr(selected_text)
-
-        panel.web.page().runJavaScript(js_code)
-
-
-def handle_ask_query(query, context):
-    """Handle 'Ask Question' action - format and auto-submit to AI Panel"""
-    global dock_widget
-
-    # Track Ask Question usage
-    track_ask_question()
-
-    # Make sure the panel is created and visible
-    if dock_widget is None:
-        create_dock_widget()
-
-    # Show the panel if hidden
-    if not dock_widget.isVisible():
-        dock_widget.show()
-        dock_widget.raise_()
-
-    # Get the panel widget
-    panel = dock_widget.widget()
-    if panel and hasattr(panel, 'web'):
-        # Ensure we're on the web view (not settings)
-        if hasattr(panel, 'show_web_view'):
-            panel.show_web_view()
-
-        # Format the message with query and context
-        formatted_message = f"{query}\n\nContext:\n{context}"
-
-        # Inject the formatted message and trigger submit
-        js_code = """
-        (function() {
-            var searchInput = document.querySelector('input[placeholder*="medical"], input[placeholder*="question"], textarea, input[type="text"]');
-            if (searchInput) {
-                var text = %s;
-
-                // Use native setter for React compatibility
-                var nativeSetter = Object.getOwnPropertyDescriptor(
-                    searchInput.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
-                    'value'
-                ).set;
-                nativeSetter.call(searchInput, text);
-
-                // Dispatch events
-                searchInput.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
-                searchInput.dispatchEvent(new Event('change', { bubbles: true }));
-
-                // Focus the input
-                searchInput.focus();
-
-                // Try to find and click the submit button after a short delay
-                setTimeout(function() {
-                    // Look for common submit button patterns
-                    var submitButton = document.querySelector('button[type="submit"]') ||
-                                     document.querySelector('button:has(svg)') ||
-                                     searchInput.closest('form')?.querySelector('button');
-
-                    if (submitButton) {
-                        submitButton.click();
-                        console.log('Anki: Auto-submitted query');
-                    } else {
-                        // Try simulating Enter key press
-                        var enterEvent = new KeyboardEvent('keydown', {
-                            key: 'Enter',
-                            code: 'Enter',
-                            keyCode: 13,
-                            which: 13,
-                            bubbles: true,
-                            cancelable: true
-                        });
-                        searchInput.dispatchEvent(enterEvent);
-                        console.log('Anki: Simulated Enter key');
-                    }
-                }, 100);
-
-                console.log('Anki: Added query with context to search box');
-            } else {
-                console.log('Anki: Could not find search input');
-            }
-        })();
-        """ % repr(formatted_message)
-
-        panel.web.page().runJavaScript(js_code)
-
-
 def handle_inline_explain(selected_text):
     """Handle inline explain — query OpenEvidence in hidden panel, extract response."""
     global dock_widget
+
+    from .analytics import track_explain
+    track_explain()
+
+    from .review import show_review_modal_if_eligible
+    show_review_modal_if_eligible()
 
     # Ensure panel is created and visible (React needs visible DOM to render)
     if dock_widget is None:
@@ -921,11 +714,21 @@ def preload_panel():
     except Exception as e:
         print(f"{ADDON_NAME}: Error in init_analytics: {e}")
 
-    # Ensure platform-appropriate defaults are set
+    # Migration: existing users who completed onboarding before tutorial tracking
+    # was added have onboarding_completed=True but tutorial_status=None.
+    # Backfill tutorial_status so the onboarding dialog doesn't re-show for them.
+    # Only applies to true legacy users (no tutorial_start_time — new code always sets it).
     try:
-        ensure_platform_defaults()
-    except Exception as e:
-        print(f"{ADDON_NAME}: Error in ensure_platform_defaults: {e}")
+        config = mw.addonManager.getConfig(ADDON_NAME) or {}
+        analytics = config.get("analytics", {})
+        if (config.get("onboarding_completed", False)
+                and analytics.get("tutorial_status") is None
+                and analytics.get("tutorial_start_time") is None):
+            analytics["tutorial_status"] = "completed"
+            config["analytics"] = analytics
+            mw.addonManager.writeConfig(ADDON_NAME, config)
+    except Exception:
+        pass
 
     # Try to send analytics once per day (non-blocking)
     try:
@@ -966,6 +769,23 @@ def preload_panel():
                 _book_icon_overlay = BookIconOverlay(mw)
                 _book_icon_overlay.show_near_toolbar()
         QTimer.singleShot(2000, _show_book_overlay)
+    else:
+        def _show_returning_user_dialog():
+            config = mw.addonManager.getConfig(ADDON_NAME) or {}
+            analytics = config.get("analytics", {})
+            tutorial = analytics.get("tutorial_status")
+
+            if tutorial == "completed" and not analytics.get("update_v2_shown", False):
+                # Completed tutorial before — show update dialog for new features
+                dialog = OnboardingDialog(mw, is_update=True)
+                dialog.show_animated()
+                mw._update_dialog = dialog
+            elif tutorial in ("skipped_midway", None) and config.get("onboarding_completed", False):
+                # Quit mid-tutorial last time (or force-quit before closeEvent) —
+                # re-show the normal tutorial
+                _show_onboarding_dialog()
+
+        QTimer.singleShot(2000, _show_returning_user_dialog)
 
 
 # Global timer for periodic analytics check
@@ -992,6 +812,10 @@ gui_hooks.reviewer_did_show_question.append(store_current_card_text)
 gui_hooks.reviewer_did_show_answer.append(store_current_card_text)
 # Set up highlight bubble hooks for reviewer
 setup_highlight_hooks()
+# Send analytics when Anki closes — always send (not gated by once-per-day)
+# since this is the last chance to capture this session's data
+from .analytics import send_analytics_background as _send_analytics_on_close
+gui_hooks.profile_will_close.append(lambda: _send_analytics_on_close())
 # Add AI Create button to editor toolbar + AI Answer to Back field
 from .ai_create import setup_editor_button, on_editor_load_note
 gui_hooks.editor_did_init_buttons.append(setup_editor_button)

@@ -492,6 +492,9 @@ class AICreateWindow(QWidget):
             self._on_error("No internet connection. Check your connection and try again.")
             return
 
+        from .analytics import track_ai_create
+        track_ai_create()
+
         self._user_content = content  # Store for fallback Front
         prompt = SINGLE_CARD_PROMPT.format(content=content)
 
@@ -783,8 +786,13 @@ def show_ai_create(editor):
         show_login_modal()
         return
 
-    # Create overlay on the editor's parent window
     parent_window = editor.parentWindow
+
+    from .review import show_review_modal_if_eligible
+    if show_review_modal_if_eligible(parent=parent_window):
+        return
+
+    # Create overlay on the editor's parent window
     overlay = ModalOverlay(parent_window)
     overlay.show()
     overlay.raise_()
@@ -858,9 +866,15 @@ def _handle_ai_answer(editor):
         tooltip("No internet connection. Check your connection and try again.", period=3000)
         return
 
-    from .analytics import is_user_logged_in
+    from .analytics import is_user_logged_in, track_ai_answer
     if not is_user_logged_in():
         show_login_modal()
+        return
+
+    track_ai_answer()
+
+    from .review import show_review_modal_if_eligible
+    if show_review_modal_if_eligible(parent=editor.parentWindow):
         return
 
     prompt = AI_ANSWER_PROMPT.format(question=clean_q)

@@ -49,15 +49,8 @@ class TutorialAwarePage(QWebEnginePage):
 
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
         """Override to catch special analytics messages from JavaScript"""
-        # Track template usage (any template)
-        if message.startswith("ANKI_ANALYTICS:template_used"):
-            try:
-                from .analytics import track_template_used
-                track_template_used()
-            except:
-                pass
         # Check for auth button click tracking
-        elif message == "ANKI_ANALYTICS:signup_clicked":
+        if message == "ANKI_ANALYTICS:signup_clicked":
             try:
                 from .analytics import track_auth_button_click
                 track_auth_button_click("signup")
@@ -75,11 +68,8 @@ class TutorialAwarePage(QWebEnginePage):
                 from .analytics import track_message_sent
                 track_message_sent()
 
-                from .review import show_review_overlay_if_eligible
-                from aqt.qt import QTimer
-                panel = self.parent()
-                if panel:
-                    QTimer.singleShot(500, lambda: show_review_overlay_if_eligible(panel))
+                from .review import show_review_modal_if_eligible
+                show_review_modal_if_eligible()
             except Exception as e:
                 print(f"AI Panel: Error in message tracking: {e}")
         # Call parent implementation for normal logging
@@ -597,7 +587,6 @@ class OpenEvidencePanel(QWidget):
             current_widget = self.stacked_widget.widget(1)
             # Import here to avoid circular import at module level
             from .settings import SettingsEditorView, SettingsListView, SettingsHomeView
-            from .settings_quick_actions import QuickActionsSettingsView
 
             if isinstance(current_widget, SettingsEditorView):
                 # In editor view, discard changes and go back to templates list view
@@ -607,9 +596,6 @@ class OpenEvidencePanel(QWidget):
                     self.show_templates_view()
             elif isinstance(current_widget, SettingsListView):
                 # In templates list view, go back to settings home
-                self.show_home_view()
-            elif isinstance(current_widget, QuickActionsSettingsView):
-                # In quick actions view, go back to settings home
                 self.show_home_view()
             elif isinstance(current_widget, SettingsHomeView):
                 # In settings home, go back to web view
@@ -683,31 +669,6 @@ class OpenEvidencePanel(QWidget):
 
         # Create new templates list view
         self.settings_view = SettingsListView(self)
-        self.stacked_widget.addWidget(self.settings_view)
-        self.stacked_widget.setCurrentIndex(1)
-        self._update_title_bar(True)
-
-    def show_quick_actions_view(self):
-        """Show the quick actions settings view"""
-        # Get current widget at index 1
-        current_widget = self.stacked_widget.widget(1)
-
-        # Import here to avoid circular import at module level
-        from .settings_quick_actions import QuickActionsSettingsView
-
-        # If it's already a QuickActionsSettingsView, just show it
-        if current_widget and isinstance(current_widget, QuickActionsSettingsView):
-            self.stacked_widget.setCurrentIndex(1)
-            self._update_title_bar(True)
-            return
-
-        # Otherwise, remove whatever is there and create new quick actions view
-        if current_widget:
-            self.stacked_widget.removeWidget(current_widget)
-            current_widget.deleteLater()
-
-        # Create new quick actions view
-        self.settings_view = QuickActionsSettingsView(self)
         self.stacked_widget.addWidget(self.settings_view)
         self.stacked_widget.setCurrentIndex(1)
         self._update_title_bar(True)
@@ -1025,9 +986,6 @@ class OpenEvidencePanel(QWidget):
                         if (window.ankiCardTexts && window.ankiCardTexts[i]) {
                             fillInputField(activeElement, window.ankiCardTexts[i]);
                             console.log('Anki: Filled search box with card text using React-compatible events');
-
-                            // Track template usage with specific shortcut for analytics
-                            console.log('ANKI_ANALYTICS:template_used:' + binding.keys.join('+'));
                         } else {
                             console.log('Anki: No card text available for this keybinding');
                         }
@@ -1221,9 +1179,9 @@ class OnboardingDialog(QWidget):
             "gif": "gifs/ai_answer.gif",
         },
         {
-            "title": "Ask a Custom Question",
-            "subtitle": "Hold Cmd, highlight any text, and ask your own follow-up.",
-            "gif": "gifs/ask_question.gif",
+            "title": "Chat With AI",
+            "subtitle": "Click the book icon to open the sidebar. Ask anything about what you're studying.",
+            "gif": "gifs/chat_sidebar.gif",
         },
         {
             "title": "Found a Bug? Tell Us.",
@@ -1233,11 +1191,27 @@ class OnboardingDialog(QWidget):
         },
     ]
 
-    def __init__(self, parent=None):
+    # First slide shown to existing users on update instead of "Welcome"
+    UPDATE_SLIDE = {
+        "title": "New Update",
+        "tagline": "Here's what's new.",
+        "subtitle": "We've added some big features since you last updated. Here's a quick look at what you can do now.",
+        "is_welcome": True,
+    }
+
+    def __init__(self, parent=None, is_update=False):
         super().__init__(parent)
         import sys
         self.is_mac = sys.platform == "darwin"
         self._backdrop_opacity = 0
+        self._tutorial_completed = False  # set True in _complete() to avoid double-tracking
+        self._is_update = is_update
+
+        # Swap the first slide for the update version if this is an existing user
+        if is_update:
+            self._slides = [self.UPDATE_SLIDE] + self.SLIDES[1:]
+        else:
+            self._slides = list(self.SLIDES)
 
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -1329,7 +1303,7 @@ class OnboardingDialog(QWidget):
         self.stacked = QStackedWidget()
         card_layout.addWidget(self.stacked)
 
-        for i in range(len(self.SLIDES)):
+        for i in range(len(self._slides)):
             self._create_slide(i)
 
         # Restart the visible GIF from frame 0 every time the user navigates,
@@ -1354,7 +1328,7 @@ class OnboardingDialog(QWidget):
 
     def _make_dots(self, active_idx, total=None):
         if total is None:
-            total = len(self.SLIDES) if hasattr(self, 'SLIDES') else 3
+            total = len(self._slides) if hasattr(self, '_slides') else 3
         c = ThemeManager.get_palette()
         w = QWidget()
         w.setStyleSheet("background: transparent;")
@@ -1448,8 +1422,8 @@ class OnboardingDialog(QWidget):
 
     def _create_slide(self, index):
         c = ThemeManager.get_palette()
-        slide = self.SLIDES[index]
-        total = len(self.SLIDES)
+        slide = self._slides[index]
+        total = len(self._slides)
         is_final = slide.get("is_final", False)
         is_welcome = slide.get("is_welcome", False)
 
@@ -1541,7 +1515,7 @@ class OnboardingDialog(QWidget):
         lay.setContentsMargins(44, 32, 44, 24)
 
         # Feature step counter — excludes welcome from the numbering
-        feature_total = sum(1 for s in self.SLIDES if not s.get("is_welcome"))
+        feature_total = sum(1 for s in self._slides if not s.get("is_welcome"))
         feature_num = index  # welcome is index 0, so feature 1 is at index 1
         step = QLabel(f"STEP {feature_num} OF {feature_total}")
         step.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1626,8 +1600,22 @@ class OnboardingDialog(QWidget):
 
     def _sync_geometry(self):
         if mw and mw.isVisible():
-            self.setGeometry(mw.rect())
-            self.move(mw.pos())
+            frame = mw.frameGeometry()
+            self.setGeometry(frame)
+
+    def closeEvent(self, event):
+        """Mark update dialog as seen if closed early (tutorial just re-shows next launch)."""
+        if not self._tutorial_completed and self._is_update:
+            try:
+                from .utils import ADDON_NAME
+                config = mw.addonManager.getConfig(ADDON_NAME) or {}
+                analytics = config.get("analytics", {})
+                analytics["update_v2_shown"] = True
+                config["analytics"] = analytics
+                mw.addonManager.writeConfig(ADDON_NAME, config)
+            except Exception:
+                pass
+        super().closeEvent(event)
 
     def _complete(self):
         """Tear down the dialog cleanly before deletion.
@@ -1640,6 +1628,37 @@ class OnboardingDialog(QWidget):
         The fix is to stop all signals/timers/movies, remove the event filter,
         then defer deleteLater() to the next event-loop tick.
         """
+        # Track completion
+        self._tutorial_completed = True
+        try:
+            from datetime import datetime
+            from .utils import ADDON_NAME
+
+            config = mw.addonManager.getConfig(ADDON_NAME) or {}
+            analytics = config.get("analytics", {})
+
+            if self._is_update:
+                # Update dialog — just mark as seen, don't overwrite tutorial metrics
+                analytics["update_v2_shown"] = True
+            else:
+                # Fresh tutorial — set status, step, and duration directly on the
+                # dict (not via tracking functions, which would read/write config
+                # independently and get overwritten by the stale dict below).
+                total_slides = len(self._slides)
+                analytics["tutorial_status"] = "completed"
+                analytics["tutorial_current_step"] = f"{total_slides}/{total_slides}"
+
+                start_time = analytics.get("tutorial_start_time")
+                if start_time:
+                    start_dt = datetime.fromisoformat(start_time)
+                    duration = round((datetime.now() - start_dt).total_seconds(), 1)
+                    analytics["tutorial_duration_seconds"] = duration
+
+            config["analytics"] = analytics
+            mw.addonManager.writeConfig(ADDON_NAME, config)
+        except Exception as e:
+            print(f"AI Panel: Error tracking tutorial completion: {e}")
+
         # Stop all GIF playback so frameChanged signals stop firing into labels
         for movie in self._slide_movies.values():
             try:

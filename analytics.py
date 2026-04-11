@@ -58,18 +58,15 @@ def init_analytics():
         analytics["tutorial_status"] = None  # null/true/"skip"/"skipped_midway"
         analytics["tutorial_current_step"] = None  # e.g., "1/36"
 
-        # Granular usage tracking (non-redundant)
-        analytics["add_to_chat_count"] = 0
-        analytics["ask_question_count"] = 0
-        analytics["template_usage_count"] = 0
-        analytics["templates_added"] = 0
-        analytics["templates_deleted"] = 0
-        
-        # Referral tracking
-        analytics["has_shown_referral"] = False
-        analytics["referral_modal_status"] = None  # "likely_scanned", "explicit_reject", "ignored_quickly"
-        analytics["referral_modal_seconds_open"] = None
-        
+        # Granular usage tracking
+
+        # AI feature usage (lifetime totals — per-session counts also live in daily_usage)
+        analytics["ai_create_count"] = 0
+        analytics["ai_generate_count"] = 0
+        analytics["ai_generate_cards_count"] = 0  # total cards actually saved to a deck
+        analytics["explain_count"] = 0
+        analytics["ai_answer_count"] = 0
+
         # Session-based daily usage (ONLY field needed for engagement metrics)
         # Server can calculate: total sessions, sessions with messages, etc.
         analytics["daily_usage"] = {
@@ -160,39 +157,71 @@ def track_tutorial_step(current: int, total: int):
     save_analytics_data(analytics)
 
 
-def track_add_to_chat():
-    """Track when user uses Add to Chat quick action (Meta+F)."""
+def _track_feature_usage(feature_key: str, increment: int = 1):
+    """
+    Increment the lifetime counter and the current session counter for an AI feature.
+
+    Lifetime counter: top-level field "<feature_key>_count".
+    Per-session counter: "<feature_key>" inside the current session entry of daily_usage,
+    so the server can correlate feature usage with messages on the same day/session.
+    """
+    global _current_session_index
     analytics = get_analytics_data()
-    analytics["add_to_chat_count"] = analytics.get("add_to_chat_count", 0) + 1
+
+    # Lifetime total
+    lifetime_key = f"{feature_key}_count"
+    analytics[lifetime_key] = analytics.get(lifetime_key, 0) + increment
+
+    # Per-session counter (mirrors track_message_sent's session-recovery logic)
+    today = datetime.now().strftime("%Y-%m-%d")
+    daily_usage = analytics.get("daily_usage", {})
+    todays_sessions = daily_usage.get(today, [])
+
+    if isinstance(todays_sessions, dict) or isinstance(todays_sessions, int):
+        todays_sessions = []
+
+    if _current_session_index < 0 or _current_session_index >= len(todays_sessions):
+        if len(todays_sessions) > 0:
+            _current_session_index = len(todays_sessions) - 1
+        else:
+            current_time = datetime.now().strftime("%H:%M:%S")
+            todays_sessions.append({"time": current_time, "messages": 0})
+            _current_session_index = 0
+            daily_usage[today] = todays_sessions
+
+    if 0 <= _current_session_index < len(todays_sessions):
+        session = todays_sessions[_current_session_index]
+        session[feature_key] = session.get(feature_key, 0) + increment
+        daily_usage[today] = todays_sessions
+        analytics["daily_usage"] = daily_usage
+
     save_analytics_data(analytics)
 
 
-def track_ask_question():
-    """Track when user uses Ask Question quick action (Meta+R)."""
-    analytics = get_analytics_data()
-    analytics["ask_question_count"] = analytics.get("ask_question_count", 0) + 1
-    save_analytics_data(analytics)
+def track_ai_create():
+    """Track when user triggers AI Create (single-card generation in editor)."""
+    _track_feature_usage("ai_create")
 
 
-def track_template_used():
-    """Track when user uses any template shortcut."""
-    analytics = get_analytics_data()
-    analytics["template_usage_count"] = analytics.get("template_usage_count", 0) + 1
-    save_analytics_data(analytics)
+def track_ai_generate():
+    """Track when user triggers AI Generate (multi-card wizard generation)."""
+    _track_feature_usage("ai_generate")
 
 
-def track_template_added():
-    """Track when user adds a new template."""
-    analytics = get_analytics_data()
-    analytics["templates_added"] = analytics.get("templates_added", 0) + 1
-    save_analytics_data(analytics)
+def track_ai_generate_cards_created(count: int):
+    """Track number of cards actually saved to a deck from AI Generate."""
+    if count > 0:
+        _track_feature_usage("ai_generate_cards", count)
 
 
-def track_template_deleted():
-    """Track when user deletes a template."""
-    analytics = get_analytics_data()
-    analytics["templates_deleted"] = analytics.get("templates_deleted", 0) + 1
-    save_analytics_data(analytics)
+def track_explain():
+    """Track when user uses inline Explain on highlighted reviewer text."""
+    _track_feature_usage("explain")
+
+
+def track_ai_answer():
+    """Track when user clicks AI Answer to fill the Back field of a card."""
+    _track_feature_usage("ai_answer")
 
 
 def track_message_sent():
@@ -363,20 +392,22 @@ def send_analytics_background():
                 "onboarding_completed": analytics.get("onboarding_completed", False),
                 "tutorial_status": analytics.get("tutorial_status"),
                 "tutorial_current_step": analytics.get("tutorial_current_step"),
-                # Granular usage tracking (non-redundant)
-                "add_to_chat_count": analytics.get("add_to_chat_count", 0),
-                "ask_question_count": analytics.get("ask_question_count", 0),
-                "template_usage_count": analytics.get("template_usage_count", 0),
-                "templates_added": analytics.get("templates_added", 0),
-                "templates_deleted": analytics.get("templates_deleted", 0),
-                # Referral tracking
-                "has_shown_referral": analytics.get("has_shown_referral", False),
-                "referral_modal_status": analytics.get("referral_modal_status"),
-                "referral_modal_seconds_open": analytics.get("referral_modal_seconds_open"),
+                "tutorial_duration_seconds": analytics.get("tutorial_duration_seconds"),
+                # AI feature usage (lifetime totals; per-session counts live in daily_usage)
+                "ai_create_count": analytics.get("ai_create_count", 0),
+                "ai_generate_count": analytics.get("ai_generate_count", 0),
+                "ai_generate_cards_count": analytics.get("ai_generate_cards_count", 0),
+                "explain_count": analytics.get("explain_count", 0),
+                "ai_answer_count": analytics.get("ai_answer_count", 0),
                 # Review tracking
                 "has_shown_review": analytics.get("has_shown_review", False),
                 "review_modal_status": analytics.get("review_modal_status"),
                 "review_modal_seconds_open": analytics.get("review_modal_seconds_open"),
+                "review_show_count": analytics.get("review_show_count", 0),
+                "review_last_shown_date": analytics.get("review_last_shown_date"),
+                "review_responded": analytics.get("review_responded"),  # "thumbs_up" / "thumbs_down" / null
+                "review_engagement_at_last_show": analytics.get("review_engagement_at_last_show", 0),
+                "review_history": analytics.get("review_history", []),  # [{show, date, status, seconds}, ...]
                 # Session-based engagement (server calculates totals)
                 "daily_usage": analytics.get("daily_usage", {}),
             }
@@ -414,7 +445,23 @@ def send_analytics_background():
     thread.start()
 
 
+def ensure_today_tracked():
+    """If Anki has been open across midnight, create a session entry for today."""
+    global _current_session_index
+    analytics = get_analytics_data()
+    today = datetime.now().strftime("%Y-%m-%d")
+    daily_usage = analytics.get("daily_usage", {})
+
+    if today not in daily_usage:
+        current_time = datetime.now().strftime("%H:%M:%S")
+        daily_usage[today] = [{"time": current_time, "messages": 0}]
+        _current_session_index = 0
+        analytics["daily_usage"] = daily_usage
+        save_analytics_data(analytics)
+
+
 def try_send_daily_analytics():
     """Attempt to send analytics once per day (non-blocking)."""
+    ensure_today_tracked()
     if should_send_analytics():
         send_analytics_background()

@@ -1,6 +1,4 @@
 {
-    "referral_threshold": 2,
-    "referral_days_threshold": 3,
     "review_days_threshold": 3,
     "review_message_threshold": 5,
     "width": 500,
@@ -9,8 +7,6 @@
     "book_icon_tutorial_done": false,
     "highlight_modifier": "none",
     "explain_enabled": true,
-    "add_to_chat_enabled": true,
-    "ask_question_enabled": true,
     "analytics_endpoint": "https://ysabnlraqldhikuoilcs.supabase.co/functions/v1/ai-panel-analytics",
     "keybindings": [
         {
@@ -43,19 +39,5 @@
             "question_template": "",
             "answer_template": "{back}"
         }
-    ],
-    "quick_actions": {
-        "add_to_chat": {
-            "keys": [
-                "Meta",
-                "F"
-            ]
-        },
-        "ask_question": {
-            "keys": [
-                "Meta",
-                "R"
-            ]
-        }
-    }
+    ]
 }

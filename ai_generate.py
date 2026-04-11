@@ -1297,6 +1297,9 @@ class AIGenerateWindow(QWidget):
 
     def _start_generation(self, prompt):
 
+        from .analytics import track_ai_generate
+        track_ai_generate()
+
         pkg = _get_package()
         if not pkg:
             self._on_generation_error("Something went wrong. Try again, and if that doesn't work, try again later.")
@@ -1792,6 +1795,10 @@ class AIGenerateWindow(QWidget):
             return
 
         count = create_cards_in_deck(selected_cards, self._deck_name)
+
+        from .analytics import track_ai_generate_cards_created
+        track_ai_generate_cards_created(count)
+
         tooltip(f"Created {count} cards in '{self._deck_name}'!", period=3000)
         self.close()
 
@@ -1866,6 +1873,10 @@ class AIGenerateWindow(QWidget):
 
 def show_ai_generate_dialog():
     """Show the AI Generate wizard window with dark overlay."""
+    from .review import show_review_modal_if_eligible
+    if show_review_modal_if_eligible():
+        return  # Review modal shown instead — user can retry after dismissing
+
     # Create overlay on Anki's central widget
     overlay = ModalOverlay(mw)
     overlay.show()
