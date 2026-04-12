@@ -93,111 +93,142 @@ def _get_package():
     return sys.modules.get('the_ai_panel') or sys.modules.get(__name__.rsplit('.', 1)[0])
 
 
-def show_login_modal():
-    """Show a modal telling the user to sign in to OpenEvidence."""
+def show_login_modal(parent=None):
+    """Show a full-screen modal telling the user to sign in to OpenEvidence.
+    Styled like the onboarding tutorial — dark backdrop with centered card.
+    Pass parent (e.g. editor.parentWindow) to show above the Add Cards dialog."""
     c = ThemeManager.get_palette()
+    target = parent or mw
 
-    # Overlay
-    overlay = ModalOverlay(mw)
-    overlay.show()
-    overlay.raise_()
-
-    # Check if signup GIF exists to determine modal size
     import os
     gif_path = os.path.join(os.path.dirname(__file__), "gifs", "signup_guide.gif")
     has_gif = os.path.exists(gif_path)
-    modal_height = 480 if has_gif else 280
 
-    # Modal window
-    modal = QWidget(mw)
-    modal.setWindowFlags(
-        Qt.WindowType.Window |
-        Qt.WindowType.FramelessWindowHint |
-        Qt.WindowType.WindowStaysOnTopHint
-    )
-    modal.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-    modal.setFixedSize(500, modal_height)
-    modal.setObjectName("LoginModal")
-    modal.setStyleSheet(f"QWidget#LoginModal {{ background: {c['background']}; border: 1px solid {c['border']}; border-radius: 14px; }}")
+    # Dark overlay — use ModalOverlay (regular child widget, covers entire
+    # parent including toolbar, no window flags needed)
+    overlay = ModalOverlay(target)
 
-    main_layout = QVBoxLayout(modal)
-    main_layout.setContentsMargins(0, 0, 0, 0)
-    main_layout.setSpacing(0)
+    outer = QVBoxLayout(overlay)
+    outer.setContentsMargins(0, 0, 0, 0)
 
-    # Header bar with X button
-    header_bar = QWidget()
-    header_bar.setFixedHeight(38)
-    hb_layout = QHBoxLayout(header_bar)
-    hb_layout.setContentsMargins(12, 0, 12, 0)
-    hb_layout.addStretch()
+    outer.addStretch(2)
+
+    # Card
+    card_width = 680
+    card_height = 580 if has_gif else 320
+    card = QWidget()
+    card.setFixedSize(card_width, card_height)
+    card.setObjectName("loginCard")
+    card.setStyleSheet(f"""
+        QWidget#loginCard {{
+            background: {c['background']};
+            border: 1px solid {c['border']};
+            border-radius: 18px;
+        }}
+        QLabel {{
+            background: transparent;
+            color: {c['text']};
+        }}
+    """)
+
+    layout = QVBoxLayout(card)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
 
     def _close():
-        modal.close()
         overlay.hide()
         overlay.deleteLater()
 
-    close_btn = QPushButton("\u2715")
-    close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-    close_btn.setFixedSize(24, 24)
-    close_btn.setStyleSheet(f"""
-        QPushButton {{ background: transparent; color: {c['text_secondary']}; border: none; border-radius: 6px; font-size: 18px; }}
-        QPushButton:hover {{ background: {c['hover']}; color: {c['text']}; }}
-    """)
-    close_btn.clicked.connect(_close)
-    hb_layout.addWidget(close_btn)
-    main_layout.addWidget(header_bar)
-
-    # Divider
-    line = QWidget()
-    line.setFixedHeight(1)
-    line.setStyleSheet(f"background: {c['border']};")
-    main_layout.addWidget(line)
-
     # Content
     content = QVBoxLayout()
-    content.setContentsMargins(28, 16, 28, 0)
-    content.setSpacing(10)
+    content.setContentsMargins(50, 24, 50, 0)
+    content.setSpacing(14)
 
     title = QLabel("Weekly question limit reached")
     title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    title.setStyleSheet(f"color: {c['text']}; font-size: 18px; font-weight: 600; font-family: {_FONT};")
+    title.setStyleSheet(f"color: {c['text']}; font-size: 24px; font-weight: 700; font-family: {_FONT};")
     content.addWidget(title)
 
     desc = QLabel("Sign up for <b>free unlimited access</b>. OpenEvidence is 100% free for medical students, doctors, dentists, veterinarians, nurses, and all healthcare professionals.")
     desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
     desc.setWordWrap(True)
-    desc.setStyleSheet(f"color: {c['text_secondary']}; font-size: 13px; font-family: {_FONT}; line-height: 1.4;")
+    desc.setStyleSheet(f"color: {c['text_secondary']}; font-size: 14px; font-family: {_FONT};")
     content.addWidget(desc)
 
-    # GIF showing how to sign up
-    if has_gif:
-        gif_container = QLabel()
-        gif_container.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        gif_container.setStyleSheet(f"border: 1px solid {c['border']}; border-radius: 8px; padding: 2px;")
-        from aqt.qt import QSize
-        movie = QMovie(gif_path)
-        movie.setScaledSize(QSize(440, 220))
-        gif_container.setMovie(movie)
-        movie.start()
-        content.addWidget(gif_container)
-        mw._login_gif_movie = movie
+    content.addSpacing(8)
 
-    main_layout.addLayout(content, 1)
+    # GIF — HiDPI-aware rendering matching the tutorial exactly
+    if has_gif:
+        try:
+            from aqt.qt import QMovie
+        except ImportError:
+            try:
+                from PyQt6.QtGui import QMovie
+            except ImportError:
+                from PyQt5.QtGui import QMovie
+        try:
+            from PyQt6.QtCore import QSize
+            from PyQt6.QtGui import QGuiApplication
+        except ImportError:
+            from PyQt5.QtCore import QSize
+            from PyQt5.QtGui import QGuiApplication
+        from .panel import RoundedPixmapLabel
+
+        screen = QGuiApplication.primaryScreen()
+        dpr = screen.devicePixelRatio() if screen else 1.0
+
+        movie = QMovie(gif_path)
+        movie.jumpToFrame(0)
+        natural = movie.currentPixmap().size()
+
+        # Compute display size preserving aspect ratio
+        max_w = 580
+        target_h = 340
+        if natural.width() > 0 and natural.height() > 0:
+            aspect = natural.width() / natural.height()
+            target_w = int(target_h * aspect)
+            if target_w > max_w:
+                target_w = max_w
+                target_h = int(max_w / aspect)
+        else:
+            target_w = max_w
+
+        # Scale to physical pixels for Retina crispness
+        movie.setScaledSize(QSize(int(target_w * dpr), int(target_h * dpr)))
+
+        lbl = RoundedPixmapLabel(radius=12, border_color=c['border'])
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setFixedSize(target_w, target_h)
+
+        def _on_frame(_=None):
+            pix = movie.currentPixmap()
+            pix.setDevicePixelRatio(dpr)
+            lbl.setPixmap(pix)
+
+        movie.frameChanged.connect(_on_frame)
+        _on_frame()
+        movie.start()
+
+        content.addWidget(lbl, 0, Qt.AlignmentFlag.AlignCenter)
+        mw._login_gif_movie = movie
+        mw._login_gif_label = lbl
+
+    layout.addLayout(content, 1)
 
     # "Got it" button
     bottom = QVBoxLayout()
-    bottom.setContentsMargins(28, 8, 28, 20)
+    bottom.setContentsMargins(50, 12, 50, 24)
 
     got_it_btn = QPushButton("Got it")
     got_it_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-    got_it_btn.setFixedHeight(44)
+    got_it_btn.setFixedHeight(48)
     got_it_btn.setStyleSheet(f"""
         QPushButton {{
-            background: {c['accent']};
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {c['accent']}, stop:1 #2563eb);
             color: #ffffff;
             border: none;
-            border-radius: 10px;
-            font-size: 15px;
+            border-radius: 12px;
+            font-size: 16px;
             font-weight: 600;
             font-family: {_FONT};
         }}
@@ -205,27 +236,16 @@ def show_login_modal():
     """)
     got_it_btn.clicked.connect(_close)
     bottom.addWidget(got_it_btn)
+    layout.addLayout(bottom)
 
-    main_layout.addLayout(bottom)
-
-    # Rounded corners mask
-    path = QPainterPath()
-    path.addRoundedRect(0.0, 0.0, float(modal.width()), float(modal.height()), 14.0, 14.0)
-    modal.setMask(QRegion(path.toFillPolygon().toPolygon()))
-
-    # Center on main window
-    geo = mw.geometry()
-    x = geo.x() + (geo.width() - modal.width()) // 2
-    y = geo.y() + (geo.height() - modal.height()) // 2
-    modal.move(x, y)
+    outer.addWidget(card, 0, Qt.AlignmentFlag.AlignHCenter)
+    outer.addStretch(3)
 
     overlay.show()
-    modal.show()
-    modal.raise_()
+    overlay.raise_()
 
     # Prevent GC
-    mw._login_modal = modal
-    mw._login_overlay = overlay
+    mw._login_modal = overlay
 
 
 def _delete_latest_oe_conversation(panel):
@@ -687,7 +707,7 @@ class AICreateWindow(QWidget):
                             modal.close()
                     except RuntimeError:
                         pass
-                    QTimer.singleShot(300, show_login_modal)
+                    QTimer.singleShot(300, lambda: show_login_modal(parent=editor.parentWindow))
                 else:
                     tooltip("Something went wrong. Try again, and if that doesn't work, try again later.", period=3000)
                 return
@@ -781,12 +801,12 @@ def show_ai_create(editor):
         tooltip("No internet connection. Check your connection and try again.", period=3000)
         return
 
+    parent_window = editor.parentWindow
+
     from .analytics import is_user_logged_in
     if not is_user_logged_in():
-        show_login_modal()
+        show_login_modal(parent=parent_window)
         return
-
-    parent_window = editor.parentWindow
 
     from .review import show_review_modal_if_eligible
     if show_review_modal_if_eligible(parent=parent_window):
@@ -868,7 +888,7 @@ def _handle_ai_answer(editor):
 
     from .analytics import is_user_logged_in, track_ai_answer
     if not is_user_logged_in():
-        show_login_modal()
+        show_login_modal(parent=editor.parentWindow)
         return
 
     track_ai_answer()
@@ -1051,7 +1071,7 @@ def _handle_ai_answer(editor):
 
                 if final == 'NEEDS_LOGIN':
                     _reset_btn(editor)
-                    show_login_modal()
+                    show_login_modal(parent=editor.parentWindow)
                     return
 
                 if final == 'ERROR_TIMEOUT':
