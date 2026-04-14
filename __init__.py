@@ -63,8 +63,8 @@ class BookIconOverlay(QWidget):
         bg = "#1c1c1e" if is_dark else "#ffffff"
         text_primary = "#ffffff" if is_dark else "#1c1c1e"
         text_secondary = "rgba(255,255,255,0.6)" if is_dark else "rgba(0,0,0,0.5)"
-        border = "rgba(255,255,255,0.1)" if is_dark else "rgba(0,0,0,0.08)"
-        shadow_color = QColor(0, 0, 0, 180) if is_dark else QColor(0, 0, 0, 60)
+        # Slightly stronger border to replace the dropped shadow
+        border = "rgba(255,255,255,0.14)" if is_dark else "rgba(0,0,0,0.18)"
         arrow_color = bg
 
         layout = QVBoxLayout(self)
@@ -102,11 +102,9 @@ class BookIconOverlay(QWidget):
         sub.setStyleSheet(f"color: {text_secondary}; font-size: 13px; font-weight: 400; background: transparent; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;")
         cl.addWidget(sub)
 
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(36)
-        shadow.setColor(shadow_color)
-        shadow.setOffset(0, 8)
-        card.setGraphicsEffect(shadow)
+        # No QGraphicsDropShadowEffect — it renders on the widget's square
+        # bounding rect and leaks out of the rounded corners. The 1px border
+        # provides enough visual separation on its own.
 
         layout.addWidget(card)
         self.setFixedWidth(220)
