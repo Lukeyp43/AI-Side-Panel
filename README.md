@@ -20,27 +20,42 @@ Anki Copilot adds AI superpowers to Anki. Generate full decks from your notes, g
 ### 1. Create a Whole Deck
 Paste your notes or describe a topic. Anki Copilot generates a full deck of flashcards in seconds — review them, pick the ones you like, and save them with one click.
 
-![Create a Whole Deck](gifs/ai_generate.gif)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="gifs/readme/dark/ai_generate.gif">
+  <img alt="Create a Whole Deck" src="gifs/readme/light/ai_generate.gif">
+</picture>
 
 ### 2. Explain Anything
 Highlight any word or phrase on a flashcard and click the floating **Explain** bubble. Get an instant 2-sentence breakdown right on the card, without opening the side panel.
 
-![Explain Anything](gifs/explain.gif)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="gifs/readme/dark/explain.gif">
+  <img alt="Explain Anything" src="gifs/readme/light/explain.gif">
+</picture>
 
 ### 3. Auto-Fill Card Answers
 Type the front of a new card, click **AI Answer**, and the back gets filled in automatically with a concise, accurate answer. Great for building decks fast.
 
-![Auto-Fill Card Answers](gifs/ai_answer.gif)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="gifs/readme/dark/ai_answer.gif">
+  <img alt="Auto-Fill Card Answers" src="gifs/readme/light/ai_answer.gif">
+</picture>
 
 ### 4. Sidebar Chat
 Click the book icon to open the side panel. Ask any medical question and get a detailed answer with direct links to the primary literature.
 
-![Sidebar Chat](gifs/chat_sidebar.gif)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="gifs/readme/dark/chat_sidebar.gif">
+  <img alt="Sidebar Chat" src="gifs/readme/light/chat_sidebar.gif">
+</picture>
 
 ### 5. Make a Single Card
 Open the **Add Cards** dialog, click **AI Create**, and paste any content. Get a clean Front/Back flashcard in seconds — perfect for one-off additions while you study.
 
-![Make a Single Card](gifs/ai_create.gif)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="gifs/readme/dark/ai_create.gif">
+  <img alt="Make a Single Card" src="gifs/readme/light/ai_create.gif">
+</picture>
 
 ---
 
