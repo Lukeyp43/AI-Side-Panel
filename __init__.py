@@ -412,13 +412,15 @@ def handle_inline_explain(selected_text):
     if dock_widget is None:
         create_dock_widget()
 
-    # Show the panel invisibly — float it off-screen with 0 opacity so the webview
-    # stays active but the user sees nothing
-    if not dock_widget.isVisible():
-        dock_widget.setFloating(True)
-        dock_widget.setWindowOpacity(0)
-        dock_widget.move(-9999, -9999)
-        dock_widget.show()
+    # Always float the panel off-screen with 0 opacity so the webview stays
+    # active but the user sees nothing — even if they had the panel open.
+    # The cleanup on completion will re-dock it hidden.
+    if dock_widget.isVisible():
+        dock_widget.hide()
+    dock_widget.setFloating(True)
+    dock_widget.setWindowOpacity(0)
+    dock_widget.move(-9999, -9999)
+    dock_widget.show()
 
     panel = dock_widget.widget()
     if not panel or not hasattr(panel, 'web'):

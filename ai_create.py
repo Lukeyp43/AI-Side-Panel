@@ -640,11 +640,14 @@ class AICreateWindow(QWidget):
             self._on_error("Something went wrong. Try again, and if that doesn't work, try again later.")
             return
 
-        if not dock_widget.isVisible():
-            dock_widget.setFloating(True)
-            dock_widget.setWindowOpacity(0)
-            dock_widget.move(-9999, -9999)
-            dock_widget.show()
+        # Always float off-screen invisibly — hide the panel first if the user
+        # had it open so the generation doesn't leak into their chat view.
+        if dock_widget.isVisible():
+            dock_widget.hide()
+        dock_widget.setFloating(True)
+        dock_widget.setWindowOpacity(0)
+        dock_widget.move(-9999, -9999)
+        dock_widget.show()
 
         panel = dock_widget.widget()
         if not panel or not hasattr(panel, 'web'):
@@ -1037,11 +1040,14 @@ def _handle_ai_answer(editor):
         tooltip("Something went wrong. Try again, and if that doesn't work, try again later.", period=3000)
         return
 
-    if not dock_widget.isVisible():
-        dock_widget.setFloating(True)
-        dock_widget.setWindowOpacity(0)
-        dock_widget.move(-9999, -9999)
-        dock_widget.show()
+    # Always float off-screen invisibly so the user doesn't see generation
+    # happening if they already had the panel open.
+    if dock_widget.isVisible():
+        dock_widget.hide()
+    dock_widget.setFloating(True)
+    dock_widget.setWindowOpacity(0)
+    dock_widget.move(-9999, -9999)
+    dock_widget.show()
 
     panel = dock_widget.widget()
     if not panel or not hasattr(panel, 'web'):

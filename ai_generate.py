@@ -1316,12 +1316,14 @@ class AIGenerateWindow(QWidget):
             self._on_generation_error("Something went wrong. Try again, and if that doesn't work, try again later.")
             return
 
-        # Make panel invisible but active (same pattern as explain feature)
-        if not dock_widget.isVisible():
-            dock_widget.setFloating(True)
-            dock_widget.setWindowOpacity(0)
-            dock_widget.move(-9999, -9999)
-            dock_widget.show()
+        # Always float panel off-screen invisibly — hide it first if the user
+        # had it open so the generation isn't visible in their chat view.
+        if dock_widget.isVisible():
+            dock_widget.hide()
+        dock_widget.setFloating(True)
+        dock_widget.setWindowOpacity(0)
+        dock_widget.move(-9999, -9999)
+        dock_widget.show()
 
         panel = dock_widget.widget()
         if not panel or not hasattr(panel, 'web'):

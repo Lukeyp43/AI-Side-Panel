@@ -24,6 +24,7 @@ HIGHLIGHT_BUBBLE_JS = """
     let contextText = ''; // Store context text for the pill
     let selectionStartRect = null; // Start position of current selection
     let selectionRect = null; // Full selection bounding rect
+    let savedRange = null; // DOM Range saved on selection so we can re-query its bounding rect after reflow
     let isCompact = false; // Track compact vs full tab mode
     let streamDisplayed = 0; // How many chars of the response have been shown
 
@@ -316,10 +317,12 @@ HIGHLIGHT_BUBBLE_JS = """
 
     // Handle explain button click
     function handleExplain() {
-        // Store the selection rect before it might get lost
+        // Store the selection rect AND clone the Range so we can re-query
+        // the bounding rect later if the window reflows (e.g., dock hides).
         var sel = window.getSelection();
         if (sel.rangeCount > 0) {
-            selectionRect = sel.getRangeAt(0).getBoundingClientRect();
+            savedRange = sel.getRangeAt(0).cloneRange();
+            selectionRect = savedRange.getBoundingClientRect();
         }
         streamDisplayed = 0;
         renderLoadingState();
@@ -441,6 +444,7 @@ HIGHLIGHT_BUBBLE_JS = """
         contextText = ''; // Clear context when bubble is hidden
         selectionStartRect = null;
         selectionRect = null;
+        savedRange = null;
         streamDisplayed = 0;
     }
 
@@ -509,6 +513,9 @@ HIGHLIGHT_BUBBLE_JS = """
                 const range = selection.getRangeAt(0);
                 const rect = range.getBoundingClientRect();
 
+                // Save the Range itself so we can re-query its rect on resize
+                savedRange = range.cloneRange();
+
                 // Get the START position of the selection for tab positioning
                 const startRange = document.createRange();
                 startRange.setStart(range.startContainer, range.startOffset);
@@ -531,6 +538,36 @@ HIGHLIGHT_BUBBLE_JS = """
 
     // Note: Bubble no longer auto-hides when clicking outside
     // Only the X button in the input state can close the bubble
+
+    // Reposition the bubble whenever the window resizes (e.g. when the AI
+    // side panel gets hidden during Explain generation — the reviewer reflows
+    // and the original selection rect becomes stale). We use the saved Range
+    // (which still points to the same DOM nodes) to get a fresh bounding rect.
+    function repositionBubbleOnResize() {
+        if (!bubble || bubble.style.display === 'none') return;
+        try {
+            if (savedRange) {
+                var newRect = savedRange.getBoundingClientRect();
+                if (newRect && (newRect.width > 0 || newRect.height > 0)) {
+                    selectionRect = newRect;
+                    var startRange = document.createRange();
+                    startRange.setStart(savedRange.startContainer, savedRange.startOffset);
+                    startRange.setEnd(savedRange.startContainer, savedRange.startOffset);
+                    selectionStartRect = startRange.getBoundingClientRect();
+                }
+            }
+            if (selectionRect) {
+                positionBubble(selectionRect);
+            }
+        } catch (e) {
+            // Range nodes may have been removed; skip
+        }
+    }
+
+    window.addEventListener('resize', function() {
+        // Debounce + let the layout settle before repositioning
+        setTimeout(repositionBubbleOnResize, 30);
+    });
 
     // Create the bubble on load
     bubble = createBubble();
