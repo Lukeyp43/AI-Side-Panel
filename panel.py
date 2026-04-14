@@ -782,10 +782,29 @@ class OpenEvidencePanel(QWidget):
             
             console.log('Anki: Injecting message tracking listener');
             window.ankiMessageTrackingInjected = true;
-            
+
+            // Only count as a message if a chat input is actually present on the
+            // page. This prevents login page form submissions / "Continue" button
+            // clicks from incrementing the counter.
+            function isOnChatPage() {
+                var inputs = document.querySelectorAll('input, textarea');
+                for (var i = 0; i < inputs.length; i++) {
+                    var ph = (inputs[i].placeholder || '').toLowerCase();
+                    if (ph.indexOf('medical') !== -1 || ph.indexOf('question') !== -1 ||
+                        ph.indexOf('ask') !== -1 || ph.indexOf('follow') !== -1 ||
+                        ph.indexOf('message') !== -1) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
             // Debounce to prevent double-counting (Enter key + form submit can fire close together)
             var lastMessageTime = 0;
             function trackMessage() {
+                if (!isOnChatPage()) {
+                    return;  // Login/signup/other pages — don't count
+                }
                 var now = Date.now();
                 if (now - lastMessageTime > 200) {  // 200ms debounce
                     lastMessageTime = now;
