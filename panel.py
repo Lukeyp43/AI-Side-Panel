@@ -587,6 +587,7 @@ class OpenEvidencePanel(QWidget):
             current_widget = self.stacked_widget.widget(1)
             # Import here to avoid circular import at module level
             from .settings import SettingsEditorView, SettingsListView, SettingsHomeView
+            from .settings_quick_actions import QuickActionsSettingsView
 
             if isinstance(current_widget, SettingsEditorView):
                 # In editor view, discard changes and go back to templates list view
@@ -596,6 +597,9 @@ class OpenEvidencePanel(QWidget):
                     self.show_templates_view()
             elif isinstance(current_widget, SettingsListView):
                 # In templates list view, go back to settings home
+                self.show_home_view()
+            elif isinstance(current_widget, QuickActionsSettingsView):
+                # In quick actions view, go back to settings home
                 self.show_home_view()
             elif isinstance(current_widget, SettingsHomeView):
                 # In settings home, go back to web view
@@ -676,6 +680,28 @@ class OpenEvidencePanel(QWidget):
     def show_list_view(self):
         """Show the settings list view (alias for show_templates_view for backward compatibility)"""
         self.show_templates_view()
+
+    def show_quick_actions_view(self):
+        """Show the quick actions settings view"""
+        current_widget = self.stacked_widget.widget(1)
+
+        from .settings_quick_actions import QuickActionsSettingsView
+
+        # If it's already a QuickActionsSettingsView, just show it
+        if current_widget and isinstance(current_widget, QuickActionsSettingsView):
+            self.stacked_widget.setCurrentIndex(1)
+            self._update_title_bar(True)
+            return
+
+        # Otherwise, swap in a fresh quick actions view
+        if current_widget:
+            self.stacked_widget.removeWidget(current_widget)
+            current_widget.deleteLater()
+
+        self.settings_view = QuickActionsSettingsView(self)
+        self.stacked_widget.addWidget(self.settings_view)
+        self.stacked_widget.setCurrentIndex(1)
+        self._update_title_bar(True)
 
     def show_editor_view(self, keybinding, index):
         """Show the settings editor view"""
@@ -1206,6 +1232,7 @@ class OnboardingDialog(QWidget):
         self._backdrop_opacity = 0
         self._tutorial_completed = False  # set True in _complete() to avoid double-tracking
         self._is_update = is_update
+        self._connected_dock = None
 
         # Swap the first slide for the update version if this is an existing user
         if is_update:
@@ -1213,17 +1240,43 @@ class OnboardingDialog(QWidget):
         else:
             self._slides = list(self.SLIDES)
 
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Regular child widget of mw (NO window flags) — this paints over
+        # everything inside mw including the toolbar (Decks/Add/Browse/
+        # Stats/Sync), which a top-level overlay can't do cleanly on macOS.
+        # autoFillBackground defaults to False, so our paintEvent controls
+        # the surface directly (same approach as ModalOverlay).
 
         self._setup_ui()
 
         if parent:
             parent.installEventFilter(self)
 
+        # Re-raise the dialog whenever the AI side panel (dock widget)
+        # becomes visible. Without this, closing and reopening the dock
+        # while the tutorial is showing would put the dock on top of it.
+        try:
+            from aqt.qt import QDockWidget
+            for dock in mw.findChildren(QDockWidget, "AIPanelDock"):
+                try:
+                    dock.visibilityChanged.connect(self._on_sibling_visibility)
+                    self._connected_dock = dock
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _on_sibling_visibility(self, *args):
+        """Re-raise the tutorial when a sibling (dock widget) visibility changes."""
+        if self.isVisible():
+            QTimer.singleShot(0, self.raise_)
+
     def eventFilter(self, watched, event):
+        # Resize with parent — also re-raise so anything that was drawn
+        # during the resize can't end up above the tutorial.
         if watched == self.parent() and event.type() == QEvent.Type.Resize:
             QTimer.singleShot(30, self._sync_geometry)
+            if self.isVisible():
+                QTimer.singleShot(30, self.raise_)
         return super().eventFilter(watched, event)
 
     # ── Styles ──
@@ -1272,7 +1325,9 @@ class OnboardingDialog(QWidget):
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Bias the card upward — more space below than above so it sits
+        # above center (roughly 1/3 from the top instead of dead middle).
+        outer.addStretch(2)
 
         # The card
         self.card = QWidget()
@@ -1312,7 +1367,8 @@ class OnboardingDialog(QWidget):
         self.stacked.setCurrentIndex(0)
         self._on_slide_changed(0)
 
-        outer.addWidget(self.card)
+        outer.addWidget(self.card, 0, Qt.AlignmentFlag.AlignHCenter)
+        outer.addStretch(3)
 
     def _on_slide_changed(self, new_index):
         """Restart the GIF for the newly visible slide; pause all others."""
@@ -1599,9 +1655,10 @@ class OnboardingDialog(QWidget):
         self._slide_anim.start()
 
     def _sync_geometry(self):
+        # As a child widget, geometry is relative to mw's content area.
+        # mw.rect() covers everything inside mw including the toolbar.
         if mw and mw.isVisible():
-            frame = mw.frameGeometry()
-            self.setGeometry(frame)
+            self.setGeometry(mw.rect())
 
     def closeEvent(self, event):
         """Mark update dialog as seen if closed early (tutorial just re-shows next launch)."""
@@ -1615,6 +1672,15 @@ class OnboardingDialog(QWidget):
                 mw.addonManager.writeConfig(ADDON_NAME, config)
             except Exception:
                 pass
+
+        # Disconnect the dock widget's visibilityChanged signal
+        if hasattr(self, "_connected_dock") and self._connected_dock is not None:
+            try:
+                self._connected_dock.visibilityChanged.disconnect(self._on_sibling_visibility)
+            except Exception:
+                pass
+            self._connected_dock = None
+
         super().closeEvent(event)
 
     def _complete(self):
@@ -1647,6 +1713,10 @@ class OnboardingDialog(QWidget):
                 total_slides = len(self._slides)
                 analytics["tutorial_status"] = "completed"
                 analytics["tutorial_current_step"] = f"{total_slides}/{total_slides}"
+                # Fresh-install users already see the new tutorial content, so
+                # mark the update dialog as seen too. Without this, the update
+                # modal would pop up on their next Anki launch.
+                analytics["update_v2_shown"] = True
 
                 start_time = analytics.get("tutorial_start_time")
                 if start_time:
@@ -1690,6 +1760,15 @@ class OnboardingDialog(QWidget):
                 parent.removeEventFilter(self)
             except Exception:
                 pass
+
+        # Disconnect the dock widget's visibilityChanged signal so it doesn't
+        # try to raise_() us after we've been deleted.
+        if hasattr(self, "_connected_dock") and self._connected_dock is not None:
+            try:
+                self._connected_dock.visibilityChanged.disconnect(self._on_sibling_visibility)
+            except Exception:
+                pass
+            self._connected_dock = None
 
         # Hide immediately, but defer the actual deletion to the next event
         # loop tick so we're not destroying the widget while it's still

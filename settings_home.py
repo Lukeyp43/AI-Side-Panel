@@ -67,7 +67,18 @@ class SettingsHomeView(QWidget):
         cards_layout.setContentsMargins(0, 0, 0, 0)
         cards_layout.setSpacing(12)
 
-        # Card 1: Replay Tutorial
+        # Card 1: Quick Actions
+        quick_actions_card = self.create_nav_card(
+            title="Quick Actions",
+            icon_svg=f"""<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M13 24L17 14L24 4L31 14L35 24L31 34L24 44L17 34L13 24Z" stroke="{icon_color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="24" cy="24" r="4" stroke="{icon_color}" stroke-width="3"/>
+            </svg>""",
+            on_click=self.open_quick_actions
+        )
+        cards_layout.addWidget(quick_actions_card)
+
+        # Card 2: Replay Tutorial
         replay_tutorial_card = self.create_nav_card(
             title="Replay Tutorial",
             icon_svg=f"""<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -309,6 +320,11 @@ class SettingsHomeView(QWidget):
 
         return container
 
+
+    def open_quick_actions(self):
+        """Navigate to Quick Actions view"""
+        if self.parent_panel and hasattr(self.parent_panel, 'show_quick_actions_view'):
+            self.parent_panel.show_quick_actions_view()
 
     def replay_tutorial(self):
         """Re-show the onboarding dialog (3-slide tutorial)."""
