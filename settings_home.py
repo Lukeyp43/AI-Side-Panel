@@ -19,8 +19,8 @@ from .theme_manager import ThemeManager
 
 
 REVIEW_URL = "https://ankiweb.net/shared/review/1314683963"
-FEATURE_REQUEST_URL = "https://github.com/Lukeyp43/OpenEvidence-AI/issues/new?labels=feature%20request"
-BUG_REPORT_URL = "https://github.com/Lukeyp43/OpenEvidence-AI/issues/new?labels=bug"
+FEATURE_REQUEST_URL = "https://github.com/Lukeyp43/Anki-Copilot/issues/new?labels=feature%20request"
+BUG_REPORT_URL = "https://github.com/Lukeyp43/Anki-Copilot/issues/new?labels=bug"
 
 
 class SettingsHomeView(QWidget):

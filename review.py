@@ -25,7 +25,7 @@ from .utils import ADDON_NAME
 from .theme_manager import ThemeManager
 
 REVIEW_URL = "https://ankiweb.net/shared/review/1314683963"
-FEEDBACK_URL = "https://github.com/Lukeyp43/OpenEvidence-AI/issues/new"
+FEEDBACK_URL = "https://github.com/Lukeyp43/Anki-Copilot/issues/new"
 
 # AI feature counters that count toward "engagement" for review eligibility.
 # Side-panel chat messages are also counted (from daily_usage).
@@ -357,7 +357,7 @@ class ReviewModal(QWidget):
         content.addStretch(2)
 
         # Title — big, centered
-        title = QLabel("Enjoying AI Side Panel?")
+        title = QLabel("Enjoying Anki Copilot?")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet(f"""
             font-size: 26px;

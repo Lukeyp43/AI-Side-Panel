@@ -1,5 +1,5 @@
 """
-Utility functions for AI Side Panel add-on.
+Utility functions for Anki Copilot add-on.
 """
 
 import re

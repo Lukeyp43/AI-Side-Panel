@@ -97,7 +97,7 @@ class BookIconOverlay(QWidget):
         title.setStyleSheet(f"color: {text_primary}; font-size: 14px; font-weight: 600; background: transparent; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;")
         cl.addWidget(title)
 
-        sub = QLabel("to open your AI panel")
+        sub = QLabel("to open Anki Copilot")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {text_secondary}; font-size: 13px; font-weight: 400; background: transparent; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;")
         cl.addWidget(sub)
@@ -120,7 +120,7 @@ class BookIconOverlay(QWidget):
             return
         js = """
         (function() {
-            var link = document.querySelector('a[title="AI Side Panel"]');
+            var link = document.querySelector('a[title="Anki Copilot"]');
             if (link) {
                 var rect = link.getBoundingClientRect();
                 return JSON.stringify({x: rect.left, y: rect.top, w: rect.width, h: rect.height});
@@ -213,7 +213,7 @@ def create_dock_widget():
 
     if dock_widget is None:
         # Create the dock widget
-        dock_widget = QDockWidget("AI Side Panel", mw)
+        dock_widget = QDockWidget("Anki Copilot", mw)
         dock_widget.setObjectName("AIPanelDock")
 
         # Always create the real panel — onboarding is now a separate dialog
@@ -697,9 +697,9 @@ def add_toolbar_button(links, toolbar):
 </svg>
 """
 
-    # Add AI Side Panel panel button
+    # Add Anki Copilot panel button
     links.append(
-        f'<a class="hitem" href="#" onclick="pycmd(\'openevidence\'); return false;" title="AI Side Panel">{open_book_icon}</a>'
+        f'<a class="hitem" href="#" onclick="pycmd(\'openevidence\'); return false;" title="Anki Copilot">{open_book_icon}</a>'
     )
 
 

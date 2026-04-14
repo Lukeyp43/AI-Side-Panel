@@ -1489,6 +1489,11 @@ class AIGenerateWindow(QWidget):
                     self.close()
                     from .ai_create import show_login_modal
                     QTimer.singleShot(300, show_login_modal)
+                elif 'outside the scope' in error.lower() or 'not within' in error.lower() or 'not medical' in error.lower():
+                    # Close the wizard first, then show the out-of-scope modal on mw
+                    self.close()
+                    from .ai_create import show_out_of_scope_modal
+                    QTimer.singleShot(300, lambda: show_out_of_scope_modal(parent=mw))
                 else:
                     self._on_generation_error(error)
                 return

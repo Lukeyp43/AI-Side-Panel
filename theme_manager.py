@@ -10,10 +10,23 @@ class ThemeManager:
     
     @staticmethod
     def is_night_mode():
-        """Check if Anki is in night mode."""
+        """Check if Anki is currently showing night mode.
+
+        Prefer aqt.theme.theme_manager.night_mode — it reflects the *current*
+        effective theme including "follow system" mode. Falls back to the
+        stored preference for older Anki versions that don't have theme_manager.
+        """
+        try:
+            from aqt.theme import theme_manager
+            return theme_manager.night_mode
+        except Exception:
+            pass
         if hasattr(mw, "pm"):
-            return mw.pm.night_mode()
-        return False  # Default to light mode if determining fails
+            try:
+                return mw.pm.night_mode()
+            except Exception:
+                pass
+        return False
 
     @classmethod
     def get_palette(cls):

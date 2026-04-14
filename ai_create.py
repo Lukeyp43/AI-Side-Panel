@@ -248,6 +248,102 @@ def show_login_modal(parent=None):
     mw._login_modal = overlay
 
 
+def show_out_of_scope_modal(parent=None):
+    """Show a full-screen modal telling the user their question isn't medical.
+    Styled like the login modal (dark backdrop with centered card) so the user
+    gets a clear, blocking explanation instead of a tiny yellow tooltip."""
+    c = ThemeManager.get_palette()
+    target = parent or mw
+
+    overlay = ModalOverlay(target)
+
+    outer = QVBoxLayout(overlay)
+    outer.setContentsMargins(0, 0, 0, 0)
+
+    outer.addStretch(2)
+
+    card_width = 560
+    card_height = 300
+    card = QWidget()
+    card.setFixedSize(card_width, card_height)
+    card.setObjectName("scopeCard")
+    card.setStyleSheet(f"""
+        QWidget#scopeCard {{
+            background: {c['background']};
+            border: 1px solid {c['border']};
+            border-radius: 18px;
+        }}
+        QLabel {{
+            background: transparent;
+            color: {c['text']};
+        }}
+    """)
+
+    layout = QVBoxLayout(card)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
+
+    # Content
+    content = QVBoxLayout()
+    content.setContentsMargins(50, 40, 50, 0)
+    content.setSpacing(16)
+
+    title = QLabel("Not a Medical Question")
+    title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    title.setStyleSheet(f"color: {c['text']}; font-size: 22px; font-weight: 700; font-family: {_FONT};")
+    content.addWidget(title)
+
+    desc = QLabel(
+        "Anki Copilot is powered by <b>OpenEvidence</b>, a medical research AI. "
+        "Your question needs to be about a medical topic. Try rephrasing with a "
+        "specific medical term, concept, or clinical scenario."
+    )
+    desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    desc.setWordWrap(True)
+    desc.setStyleSheet(f"color: {c['text_secondary']}; font-size: 14px; font-family: {_FONT}; line-height: 1.5;")
+    content.addWidget(desc)
+
+    content.addStretch()
+
+    layout.addLayout(content, 1)
+
+    def _close():
+        overlay.hide()
+        overlay.deleteLater()
+
+    # "Got it" button
+    bottom = QVBoxLayout()
+    bottom.setContentsMargins(50, 12, 50, 28)
+
+    got_it_btn = QPushButton("Got it")
+    got_it_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+    got_it_btn.setFixedHeight(48)
+    got_it_btn.setStyleSheet(f"""
+        QPushButton {{
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {c['accent']}, stop:1 #2563eb);
+            color: #ffffff;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            font-family: {_FONT};
+        }}
+        QPushButton:hover {{ background: {c['accent_hover']}; }}
+    """)
+    got_it_btn.clicked.connect(_close)
+    bottom.addWidget(got_it_btn)
+    layout.addLayout(bottom)
+
+    outer.addWidget(card, 0, Qt.AlignmentFlag.AlignHCenter)
+    outer.addStretch(3)
+
+    overlay.show()
+    overlay.raise_()
+
+    # Prevent GC
+    mw._scope_modal = overlay
+
+
 def _delete_latest_oe_conversation(panel):
     """Capture conversation ID from current URL, then call OE's forget API
     to delete it. No UI clicking — direct POST to /api/article/{id}/forget."""
@@ -708,6 +804,13 @@ class AICreateWindow(QWidget):
                     except RuntimeError:
                         pass
                     QTimer.singleShot(300, lambda: show_login_modal(parent=editor.parentWindow))
+                elif 'outside the scope' in error.lower() or 'not within' in error.lower() or 'not medical' in error.lower():
+                    try:
+                        if modal.isVisible():
+                            modal.close()
+                    except RuntimeError:
+                        pass
+                    QTimer.singleShot(300, lambda: show_out_of_scope_modal(parent=editor.parentWindow))
                 else:
                     tooltip("Something went wrong. Try again, and if that doesn't work, try again later.", period=3000)
                 return
@@ -994,6 +1097,14 @@ def _handle_ai_answer(editor):
                 window.ankiAnswerResult = 'ERROR_TIMEOUT';
                 return;
             }
+            // Check for out-of-scope warning
+            var warning = document.querySelector('.MuiAlert-standardWarning, .MuiAlert-colorWarning');
+            if (warning && warning.textContent.indexOf('outside the scope') !== -1) {
+                clearInterval(pollInterval);
+                window.ankiAnswerResult = 'OUT_OF_SCOPE';
+                return;
+            }
+
             // Check for rate limit / login popup
             var dlg = document.querySelector('[role="dialog"]');
             if (dlg) {
@@ -1072,6 +1183,15 @@ def _handle_ai_answer(editor):
                 if final == 'NEEDS_LOGIN':
                     _reset_btn(editor)
                     show_login_modal(parent=editor.parentWindow)
+                    return
+
+                if final == 'OUT_OF_SCOPE':
+                    _reset_btn(editor)
+                    # Clear the partial streaming back into the back field
+                    if editor.note:
+                        editor.note.fields[1] = ''
+                        editor.loadNote()
+                    show_out_of_scope_modal(parent=editor.parentWindow)
                     return
 
                 if final == 'ERROR_TIMEOUT':

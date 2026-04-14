@@ -181,7 +181,7 @@ class CustomTitleBar(QWidget):
         layout.addWidget(self.back_button)
 
         # Title label
-        self.title_label = QLabel("AI Side Panel")
+        self.title_label = QLabel("Anki Copilot")
         self.title_label.setStyleSheet(f"color: {c['text']}; font-size: 13px; font-weight: 500;")
         layout.addWidget(self.title_label)
 
@@ -341,7 +341,7 @@ class CustomTitleBar(QWidget):
             self.settings_button.setVisible(False)
         else:
             # Web view mode
-            self.title_label.setText("AI Side Panel")
+            self.title_label.setText("Anki Copilot")
             self.back_button.setVisible(False)
             self.settings_button.setVisible(True)
 

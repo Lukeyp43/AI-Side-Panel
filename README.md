@@ -22,7 +22,7 @@ Paste your notes or describe a topic. Anki Copilot generates a full deck of flas
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="gifs/readme/dark/ai_generate.gif">
-  <img alt="Create a Whole Deck" src="gifs/readme/light/ai_generate.gif">
+  <img alt="Create a Whole Deck" src="gifs/readme/light/ai_generate-light.gif">
 </picture>
 
 ### 2. Explain Anything
@@ -30,7 +30,7 @@ Highlight any word or phrase on a flashcard and click the floating **Explain** b
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="gifs/readme/dark/explain.gif">
-  <img alt="Explain Anything" src="gifs/readme/light/explain.gif">
+  <img alt="Explain Anything" src="gifs/readme/light/explain-light.gif">
 </picture>
 
 ### 3. Auto-Fill Card Answers
@@ -38,7 +38,7 @@ Type the front of a new card, click **AI Answer**, and the back gets filled in a
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="gifs/readme/dark/ai_answer.gif">
-  <img alt="Auto-Fill Card Answers" src="gifs/readme/light/ai_answer.gif">
+  <img alt="Auto-Fill Card Answers" src="gifs/readme/light/ai_answer-light.gif">
 </picture>
 
 ### 4. Sidebar Chat
@@ -46,7 +46,7 @@ Click the book icon to open the side panel. Ask any medical question and get a d
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="gifs/readme/dark/chat_sidebar.gif">
-  <img alt="Sidebar Chat" src="gifs/readme/light/chat_sidebar.gif">
+  <img alt="Sidebar Chat" src="gifs/readme/light/chat_sidebar-light.gif">
 </picture>
 
 ### 5. Make a Single Card
@@ -54,7 +54,7 @@ Open the **Add Cards** dialog, click **AI Create**, and paste any content. Get a
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="gifs/readme/dark/ai_create.gif">
-  <img alt="Make a Single Card" src="gifs/readme/light/ai_create.gif">
+  <img alt="Make a Single Card" src="gifs/readme/light/ai_create-light.gif">
 </picture>
 
 ---

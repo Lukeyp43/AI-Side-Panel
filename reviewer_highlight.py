@@ -228,15 +228,15 @@ HIGHLIGHT_BUBBLE_JS = """
         bubble.innerHTML = `
             <div style="
                 width: 320px;
-                background: rgba(0, 0, 0, 0.35);
+                background: rgba(22, 22, 24, 0.92);
                 -webkit-backdrop-filter: blur(40px) saturate(1.8);
                 backdrop-filter: blur(40px) saturate(1.8);
-                border: 1px solid rgba(255, 255, 255, 0.12);
+                border: 1px solid rgba(255, 255, 255, 0.14);
                 border-radius: 14px;
                 box-shadow:
-                    inset 0 0.5px 0 0 rgba(255, 255, 255, 0.1),
-                    0 0 0 0.5px rgba(255, 255, 255, 0.06),
-                    0 2px 16px rgba(0, 0, 0, 0.25),
+                    inset 0 0.5px 0 0 rgba(255, 255, 255, 0.12),
+                    0 0 0 0.5px rgba(255, 255, 255, 0.08),
+                    0 4px 24px rgba(0, 0, 0, 0.35),
                     0 0 40px rgba(255, 255, 255, 0.02);
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 overflow: hidden;
@@ -246,11 +246,11 @@ HIGHLIGHT_BUBBLE_JS = """
                     justify-content: space-between;
                     align-items: center;
                     padding: 3px 10px;
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
                 ">
                     <button id="open-panel-btn" style="
                         background: none; border: none;
-                        color: rgba(255,255,255,0.4);
+                        color: rgba(255,255,255,0.72);
                         cursor: pointer; font-size: 10px; font-weight: 500;
                         font-family: inherit; padding: 0;
                         display: inline-flex; align-items: center; gap: 4px;
@@ -264,8 +264,8 @@ HIGHLIGHT_BUBBLE_JS = """
                     </button>
                     <button id="tooltip-close" style="
                         background: none; border: none;
-                        color: rgba(255,255,255,0.3);
-                        cursor: pointer; font-size: 10px;
+                        color: rgba(255,255,255,0.65);
+                        cursor: pointer; font-size: 12px; font-weight: 500;
                         padding: 0 2px; line-height: 1;
                         transition: color 0.15s;
                     ">\u2715</button>
@@ -300,8 +300,8 @@ HIGHLIGHT_BUBBLE_JS = """
         var closeBtn = bubble.querySelector('#tooltip-close');
         closeBtn.addEventListener('click', (e) => { e.stopPropagation(); pycmd('openevidence:clear_chat'); hideBubble(); });
         closeBtn.addEventListener('mouseup', (e) => { e.stopPropagation(); });
-        closeBtn.addEventListener('mouseenter', () => { closeBtn.style.color = 'rgba(255,255,255,0.65)'; });
-        closeBtn.addEventListener('mouseleave', () => { closeBtn.style.color = 'rgba(255,255,255,0.3)'; });
+        closeBtn.addEventListener('mouseenter', () => { closeBtn.style.color = 'rgba(255,255,255,0.95)'; });
+        closeBtn.addEventListener('mouseleave', () => { closeBtn.style.color = 'rgba(255,255,255,0.65)'; });
 
         var openBtn = bubble.querySelector('#open-panel-btn');
         openBtn.addEventListener('click', (e) => {
@@ -310,8 +310,8 @@ HIGHLIGHT_BUBBLE_JS = """
             hideBubble();
         });
         openBtn.addEventListener('mouseup', (e) => { e.stopPropagation(); });
-        openBtn.addEventListener('mouseenter', () => { openBtn.style.color = 'rgba(255,255,255,0.65)'; });
-        openBtn.addEventListener('mouseleave', () => { openBtn.style.color = 'rgba(255,255,255,0.4)'; });
+        openBtn.addEventListener('mouseenter', () => { openBtn.style.color = 'rgba(255,255,255,0.98)'; });
+        openBtn.addEventListener('mouseleave', () => { openBtn.style.color = 'rgba(255,255,255,0.72)'; });
     }
 
     // Handle explain button click
