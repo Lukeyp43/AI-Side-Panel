@@ -6,7 +6,7 @@ Powered by OpenEvidence AI for evidence-based answers.
 ![Anki Copilot Overview](screenshots/overview.png)
 
 ## Overview
-Anki Copilot adds AI superpowers to Anki. Generate full decks from your notes, create cards from any topic, get instant explanations on what you're studying, and chat with a medical AI — all without leaving Anki.
+Anki Copilot adds AI superpowers to Anki. Generate full decks from your notes, get instant explanations on what you're studying, auto-fill card answers, and chat with a medical AI — all without leaving Anki.
 
 *   **Free** for the healthcare community. No subscriptions, no limits.
 *   **Real Citations**: Answers link to peer-reviewed sources like JAMA and PubMed.
@@ -17,48 +17,30 @@ Anki Copilot adds AI superpowers to Anki. Generate full decks from your notes, c
 
 ## Features
 
-### 1. Chat with AI
-Open the side panel (click the book icon) and ask any medical question. Get detailed answers with direct links to the primary literature.
+### 1. Create a Whole Deck
+Paste your notes or describe a topic. Anki Copilot generates a full deck of flashcards in seconds — review them, pick the ones you like, and save them with one click.
 
-![Chat Sidebar](screenshots/chat_sidebar.gif)
+![Create a Whole Deck](gifs/ai_generate.gif)
 
 ### 2. Explain Anything
 Highlight any word or phrase on a flashcard and click the floating **Explain** bubble. Get an instant 2-sentence breakdown right on the card, without opening the side panel.
 
-![Explain](screenshots/explain.gif)
+![Explain Anything](gifs/explain.gif)
 
-### 3. AI Create
-Open the **Add Cards** dialog, click **AI Create**, and paste your content. Anki Copilot generates a clean Front/Back flashcard in seconds.
+### 3. Auto-Fill Card Answers
+Type the front of a new card, click **AI Answer**, and the back gets filled in automatically with a concise, accurate answer. Great for building decks fast.
 
-![AI Create](screenshots/ai_create.gif)
+![Auto-Fill Card Answers](gifs/ai_answer.gif)
 
-### 4. AI Generate
-Open the deck browser, click **AI Generate**, and paste your notes or describe a topic. Anki Copilot generates a full deck of flashcards — you review and save them with one click.
+### 4. Sidebar Chat
+Click the book icon to open the side panel. Ask any medical question and get a detailed answer with direct links to the primary literature.
 
-![AI Generate](screenshots/ai_generate.gif)
+![Sidebar Chat](gifs/chat_sidebar.gif)
 
-### 5. AI Answer
-Typing out a new flashcard? Just fill in the **Front**, click **AI Answer**, and the back gets filled in automatically with a concise, accurate answer.
+### 5. Make a Single Card
+Open the **Add Cards** dialog, click **AI Create**, and paste any content. Get a clean Front/Back flashcard in seconds — perfect for one-off additions while you study.
 
-![AI Answer](screenshots/ai_answer.gif)
-
----
-
-## Customization
-
-### Templates
-Save prompts you use often as keyboard shortcuts. We included 3 starters:
-*   **Standard Explain** (`Ctrl+Shift+S`): "Can you explain this to me?" with the card's front and back
-*   **Front/Back** (`Ctrl+Shift+Q`): Sends just the front of the card
-*   **Back Only** (`Ctrl+Shift+A`): Sends just the back of the card
-
-You can add, edit, or remove templates in **Gear Icon > Templates**.
-
-### Feature Toggles
-Turn individual features on or off at any time:
-1.  Open the side panel.
-2.  Click the **Gear Icon** > **Quick Actions**.
-3.  Toggle features like the **Explain** bubble on and off.
+![Make a Single Card](gifs/ai_create.gif)
 
 ---
 
