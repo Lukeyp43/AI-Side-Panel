@@ -5,6 +5,77 @@ Theme Manager - Centralized handling of UI colors and styles for Light/Dark mode
 from aqt import mw
 from aqt.qt import QColor
 
+try:
+    from PyQt6.QtWidgets import QPushButton
+    from PyQt6.QtGui import QPainter, QPen, QCursor
+    from PyQt6.QtCore import Qt, QPointF
+except ImportError:
+    from PyQt5.QtWidgets import QPushButton
+    from PyQt5.QtGui import QPainter, QPen, QCursor
+    from PyQt5.QtCore import Qt, QPointF
+
+
+class CloseButton(QPushButton):
+    """Close button that paints its X with QPainter so it renders identically
+    on every platform. The text-based approach (QPushButton("×")) depends on
+    the default Qt font actually rendering U+00D7 at a small size — on Windows
+    the stroke collapses into nothing in a 24px button, leaving the button
+    visibly empty. Drawing two lines directly avoids the font entirely."""
+
+    def __init__(self, parent=None, size=24, color=None, hover_color=None, hover_bg=None):
+        super().__init__(parent)
+        self.setText("")
+        self.setFixedSize(size, size)
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+        palette = ThemeManager.get_palette()
+        self._color = QColor(color or palette['text_secondary'])
+        self._hover_color = QColor(hover_color or palette['text'])
+        self._hover_bg = QColor(hover_bg or palette['hover'])
+        self._hover = False
+
+        radius = max(4, size // 4)
+        self.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; border-radius: {radius}px; }}"
+        )
+
+    def enterEvent(self, event):
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hover = False
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Hover background fill
+        if self._hover:
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(self._hover_bg)
+            radius = max(4, self.width() // 4)
+            p.drawRoundedRect(0, 0, self.width(), self.height(), radius, radius)
+
+        # Two diagonal lines forming the X
+        stroke_color = self._hover_color if self._hover else self._color
+        pen = QPen(stroke_color)
+        pen.setWidthF(max(1.4, self.width() / 16))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+
+        w = self.width()
+        h = self.height()
+        # Inset the X by ~32% of the width so it sits nicely inside the button
+        inset = w * 0.32
+        p.drawLine(QPointF(inset, inset), QPointF(w - inset, h - inset))
+        p.drawLine(QPointF(w - inset, inset), QPointF(inset, h - inset))
+        p.end()
+
+
 class ThemeManager:
     """Manages colors and styles based on Anki's night mode setting."""
     

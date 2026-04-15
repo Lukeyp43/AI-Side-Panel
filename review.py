@@ -22,7 +22,7 @@ except ImportError:
     from PyQt5.QtGui import QCursor
 
 from .utils import ADDON_NAME
-from .theme_manager import ThemeManager
+from .theme_manager import ThemeManager, CloseButton
 
 REVIEW_URL = "https://ankiweb.net/shared/review/1314683963"
 FEEDBACK_URL = "https://github.com/Lukeyp43/Anki-Copilot/issues/new"
@@ -238,7 +238,10 @@ class ReviewModal(QWidget):
         self.exit_method = None
         self._backdrop_opacity = 0
 
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        # Qt.Dialog + parent = stays above parent window but NOT above other
+        # OS windows. Prevents the review modal from sitting on top of Chrome
+        # or other apps when the user switches focus.
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         self._build_ui()
@@ -328,22 +331,7 @@ class ReviewModal(QWidget):
 
         hb_layout.addStretch()
 
-        close_btn = QPushButton("\u2715")
-        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        close_btn.setFixedSize(32, 32)
-        close_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: none;
-                border-radius: 8px;
-                color: {c['text_secondary']};
-                font-size: 18px;
-            }}
-            QPushButton:hover {{
-                background: {c['hover']};
-                color: {c['text']};
-            }}
-        """)
+        close_btn = CloseButton(size=32)
         close_btn.clicked.connect(self._on_close_clicked)
         hb_layout.addWidget(close_btn)
 

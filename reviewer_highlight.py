@@ -269,7 +269,7 @@ HIGHLIGHT_BUBBLE_JS = """
                         cursor: pointer; font-size: 12px; font-weight: 500;
                         padding: 0 2px; line-height: 1;
                         transition: color 0.15s;
-                    ">\u2715</button>
+                    ">\u00d7</button>
                 </div>
                 <div id="tooltip-scroll" style="
                     max-height: 150px;

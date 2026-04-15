@@ -20,7 +20,7 @@ def _has_internet():
         return False
 
 from .utils import ADDON_NAME
-from .theme_manager import ThemeManager
+from .theme_manager import ThemeManager, CloseButton
 
 try:
     from PyQt6.QtWidgets import (
@@ -88,15 +88,42 @@ def parse_partial_card(response_text):
 
 _ai_create_timer = None
 
+# Timestamp of the last user-initiated query to any AI feature. Used as a
+# safety gate for show_login_modal so it can never fire without the user
+# actually hitting the OE rate limit in a real request they just sent.
+# On Windows, previous versions mis-fired the modal on button click because
+# of a pre-check that read stale config state — the gate here ensures that
+# even if any stale polling state slips through, the modal stays suppressed.
+_last_user_query_time = 0.0
+
+
+def mark_user_query():
+    """Call this right before submitting a prompt to OpenEvidence so the
+    login modal is allowed to fire if OE responds with the rate-limit dialog."""
+    global _last_user_query_time
+    import time as _time
+    _last_user_query_time = _time.time()
+
 
 def _get_package():
-    return sys.modules.get('the_ai_panel') or sys.modules.get(__name__.rsplit('.', 1)[0])
+    # Use the dynamic package name from __name__ so this works regardless
+    # of what folder the addon is installed as.
+    return sys.modules.get(__name__.rsplit('.', 1)[0]) or sys.modules.get('anki_copilot') or sys.modules.get('the_ai_panel')
 
 
 def show_login_modal(parent=None):
     """Show a full-screen modal telling the user to sign in to OpenEvidence.
     Styled like the onboarding tutorial — dark backdrop with centered card.
     Pass parent (e.g. editor.parentWindow) to show above the Add Cards dialog."""
+    # Safety gate: only fire if the user actually submitted a query to OE
+    # within the last 2 minutes. Every real call site marks the query time
+    # right before sending the prompt, so a legitimate rate-limit response
+    # always passes this check. If no recent query was marked, the call is
+    # from stale polling state and the modal must not show.
+    import time as _time
+    if _time.time() - _last_user_query_time > 120:
+        return
+
     c = ThemeManager.get_palette()
     target = parent or mw
 
@@ -391,10 +418,14 @@ def _cleanup_create_panel():
 
 
 class ModalOverlay(QWidget):
-    """Dark overlay behind the modal."""
+    """Dark overlay behind the modal. Uses stylesheet rgba + WA_StyledBackground
+    so the backdrop actually renders on Windows — a paintEvent+fillRect(alpha)
+    approach silently produces a fully transparent backdrop on Win32."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet("background: rgba(0, 0, 0, 120);")
         if parent:
             self.setGeometry(parent.rect())
             parent.installEventFilter(self)
@@ -404,11 +435,6 @@ class ModalOverlay(QWidget):
         if watched == self.parent() and event.type() == QEvent.Type.Resize:
             self.setGeometry(self.parent().rect())
         return super().eventFilter(watched, event)
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.fillRect(self.rect(), QColor(0, 0, 0, 120))
-        p.end()
 
     def mousePressEvent(self, event):
         event.accept()
@@ -420,10 +446,12 @@ class AICreateWindow(QWidget):
     def __init__(self, editor, parent=None):
         super().__init__(parent)
         self._editor = editor
+        # Qt.Dialog + parent = stays above parent window but NOT above other
+        # OS windows. This keeps the modal above Anki's Add Cards dialog
+        # without staying on top of Chrome/Safari/etc when the user switches apps.
         self.setWindowFlags(
-            Qt.WindowType.Window |
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint
+            Qt.WindowType.Dialog |
+            Qt.WindowType.FramelessWindowHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setMinimumSize(460, 340)
@@ -434,14 +462,39 @@ class AICreateWindow(QWidget):
         self._overlay = None
 
         self._setup_ui()
-        self._center_on_screen()
+        # Defer centering until after the window has actually been laid out.
+        # On Windows, calling move() in __init__ happens before show() has
+        # computed the real geometry, so the initial position is wrong.
 
-    def _center_on_screen(self):
-        if mw:
-            geo = mw.geometry()
-            x = geo.x() + (geo.width() - self.width()) // 2
-            y = geo.y() + (geo.height() - self.height()) // 2
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Re-center every time the window is shown — Windows computes the
+        # real size after the layout runs, so this gets the final width/height.
+        self._center_on_parent()
+
+    def _center_on_parent(self):
+        # Prefer centering on the editor's parent window (the Add Cards
+        # dialog). Fall back to the main Anki window if that's not available.
+        target = None
+        try:
+            if self._editor and self._editor.parentWindow:
+                target = self._editor.parentWindow
+        except Exception:
+            pass
+        if target is None:
+            target = mw
+
+        if not target:
+            return
+
+        try:
+            geo = target.frameGeometry()
+            size = self.frameGeometry().size()
+            x = geo.x() + (geo.width() - size.width()) // 2
+            y = geo.y() + (geo.height() - size.height()) // 2
             self.move(x, y)
+        except Exception:
+            pass
 
     def _setup_ui(self):
         c = ThemeManager.get_palette()
@@ -460,13 +513,7 @@ class AICreateWindow(QWidget):
         hb_layout.setContentsMargins(12, 0, 12, 0)
         hb_layout.addStretch()
 
-        close_btn = QPushButton("\u2715")
-        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        close_btn.setFixedSize(24, 24)
-        close_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {c['text_secondary']}; border: none; border-radius: 6px; font-size: 18px; }}
-            QPushButton:hover {{ background: {c['hover']}; color: {c['text']}; }}
-        """)
+        close_btn = CloseButton(size=24)
         close_btn.clicked.connect(self.close)
         hb_layout.addWidget(close_btn)
         header_bar.mousePressEvent = self._title_mouse_press
@@ -624,6 +671,10 @@ class AICreateWindow(QWidget):
         self._start_generation(prompt)
 
     def _start_generation(self, prompt):
+        # Arm the login modal safety gate — the user is actively submitting
+        # a query to OE, so a NEEDS_LOGIN response from polling is legitimate.
+        mark_user_query()
+
         pkg = _get_package()
         if not pkg:
             self._on_error("Something went wrong. Try again, and if that doesn't work, try again later.")
@@ -648,6 +699,19 @@ class AICreateWindow(QWidget):
         dock_widget.setWindowOpacity(0)
         dock_widget.move(-9999, -9999)
         dock_widget.show()
+
+        # Showing the dock widget activates mw and pushes the Add Cards
+        # dialog behind it. Raise the editor's parent window (and this
+        # AI Create window) back to the front so the user stays in context.
+        try:
+            editor_window = self._editor.parentWindow if self._editor else None
+            if editor_window:
+                editor_window.raise_()
+                editor_window.activateWindow()
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            pass
 
         panel = dock_widget.widget()
         if not panel or not hasattr(panel, 'web'):
@@ -909,11 +973,6 @@ def show_ai_create(editor):
 
     parent_window = editor.parentWindow
 
-    from .analytics import is_user_logged_in
-    if not is_user_logged_in():
-        show_login_modal(parent=parent_window)
-        return
-
     from .review import show_review_modal_if_eligible
     if show_review_modal_if_eligible(parent=parent_window):
         return
@@ -992,12 +1051,12 @@ def _handle_ai_answer(editor):
         tooltip("No internet connection. Check your connection and try again.", period=3000)
         return
 
-    from .analytics import is_user_logged_in, track_ai_answer
-    if not is_user_logged_in():
-        show_login_modal(parent=editor.parentWindow)
-        return
-
+    from .analytics import track_ai_answer
     track_ai_answer()
+
+    # Arm the login modal safety gate — user clicked AI Answer which submits
+    # the Front field to OE as a real query.
+    mark_user_query()
 
     from .review import show_review_modal_if_eligible
     if show_review_modal_if_eligible(parent=editor.parentWindow):
@@ -1048,6 +1107,16 @@ def _handle_ai_answer(editor):
     dock_widget.setWindowOpacity(0)
     dock_widget.move(-9999, -9999)
     dock_widget.show()
+
+    # Showing the dock widget activates mw and pushes the Add Cards dialog
+    # behind it. Raise the editor's parent window back to the front.
+    try:
+        editor_window = editor.parentWindow
+        if editor_window:
+            editor_window.raise_()
+            editor_window.activateWindow()
+    except Exception:
+        pass
 
     panel = dock_widget.widget()
     if not panel or not hasattr(panel, 'web'):

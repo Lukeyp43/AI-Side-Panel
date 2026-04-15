@@ -18,7 +18,7 @@ def _has_internet():
         return False
 
 from .utils import ADDON_NAME
-from .theme_manager import ThemeManager
+from .theme_manager import ThemeManager, CloseButton
 
 try:
     from PyQt6.QtWidgets import (
@@ -192,8 +192,10 @@ def create_cards_in_deck(cards, deck_name):
 
 
 def _get_package():
-    """Get the package module to access dock_widget and create_dock_widget."""
-    return sys.modules.get('the_ai_panel') or sys.modules.get(__name__.rsplit('.', 1)[0])
+    """Get the package module to access dock_widget and create_dock_widget.
+    Uses the dynamic package name so it works no matter what folder the
+    addon is installed as."""
+    return sys.modules.get(__name__.rsplit('.', 1)[0]) or sys.modules.get('anki_copilot') or sys.modules.get('the_ai_panel')
 
 
 # ─── Font constant ───────────────────────────────────────────────────
@@ -270,10 +272,15 @@ class CheckmarkWidget(QWidget):
 # ─── Main Window ─────────────────────────────────────────────────────
 
 class ModalOverlay(QWidget):
-    """Dark overlay that covers the Anki main window behind the modal."""
+    """Dark overlay that covers the Anki main window behind the modal.
+    Uses a stylesheet rgba background with WA_StyledBackground — the naive
+    paintEvent+fillRect(alpha) approach doesn't composite on Windows for a
+    child QWidget, leaving the backdrop fully transparent."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet("background: rgba(0, 0, 0, 120);")
         if parent:
             self.setGeometry(parent.rect())
             parent.installEventFilter(self)
@@ -284,11 +291,6 @@ class ModalOverlay(QWidget):
             self.setGeometry(self.parent().rect())
         return super().eventFilter(watched, event)
 
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.fillRect(self.rect(), QColor(0, 0, 0, 120))
-        p.end()
-
     def mousePressEvent(self, event):
         event.accept()
 
@@ -298,10 +300,12 @@ class AIGenerateWindow(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        # Qt.Dialog + parent = stays above parent window but NOT above other
+        # OS windows. Keeps the wizard above Anki without staying on top of
+        # Chrome/other apps when the user switches focus.
         self.setWindowFlags(
-            Qt.WindowType.Window |
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint
+            Qt.WindowType.Dialog |
+            Qt.WindowType.FramelessWindowHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setMinimumSize(460, 340)
@@ -363,13 +367,7 @@ class AIGenerateWindow(QWidget):
 
         layout.addStretch()
 
-        close_btn = QPushButton("\u2715")
-        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        close_btn.setFixedSize(24, 24)
-        close_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {c['text_secondary']}; border: none; border-radius: 6px; font-size: 18px; }}
-            QPushButton:hover {{ background: {c['hover']}; color: {c['text']}; }}
-        """)
+        close_btn = CloseButton(size=24)
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn)
 
@@ -418,13 +416,7 @@ class AIGenerateWindow(QWidget):
         hb_layout = QHBoxLayout(header_bar)
         hb_layout.setContentsMargins(12, 0, 12, 0)
         hb_layout.addStretch()
-        close_btn = QPushButton("\u2715")
-        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        close_btn.setFixedSize(24, 24)
-        close_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {c['text_secondary']}; border: none; border-radius: 6px; font-size: 18px; }}
-            QPushButton:hover {{ background: {c['hover']}; color: {c['text']}; }}
-        """)
+        close_btn = CloseButton(size=24)
         close_btn.clicked.connect(self.close)
         hb_layout.addWidget(close_btn)
         header_bar.mousePressEvent = self._title_mouse_press
@@ -548,13 +540,7 @@ class AIGenerateWindow(QWidget):
 
         hb_layout.addStretch()
 
-        close_btn = QPushButton("\u2715")
-        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        close_btn.setFixedSize(24, 24)
-        close_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {c['text_secondary']}; border: none; border-radius: 6px; font-size: 18px; }}
-            QPushButton:hover {{ background: {c['hover']}; color: {c['text']}; }}
-        """)
+        close_btn = CloseButton(size=24)
         close_btn.clicked.connect(self.close)
         hb_layout.addWidget(close_btn)
         header_bar.mousePressEvent = self._title_mouse_press
@@ -1236,13 +1222,7 @@ class AIGenerateWindow(QWidget):
         hb_layout.setContentsMargins(12, 0, 12, 0)
         hb_layout.addStretch()
 
-        close_btn = QPushButton("\u2715")
-        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        close_btn.setFixedSize(24, 24)
-        close_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {c['text_secondary']}; border: none; border-radius: 6px; font-size: 18px; }}
-            QPushButton:hover {{ background: {c['hover']}; color: {c['text']}; }}
-        """)
+        close_btn = CloseButton(size=24)
         close_btn.clicked.connect(self.close)
         hb_layout.addWidget(close_btn)
 
@@ -1299,6 +1279,11 @@ class AIGenerateWindow(QWidget):
 
         from .analytics import track_ai_generate
         track_ai_generate()
+
+        # Arm the login modal safety gate — user is actively submitting a
+        # real query to OE, so a NEEDS_LOGIN polling response is legitimate.
+        from .ai_create import mark_user_query
+        mark_user_query()
 
         pkg = _get_package()
         if not pkg:
@@ -1592,13 +1577,7 @@ class AIGenerateWindow(QWidget):
         self.select_all_cb.toggled.connect(self._toggle_select_all)
         hb_layout.addWidget(self.select_all_cb)
 
-        close_btn = QPushButton("\u2715")
-        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        close_btn.setFixedSize(24, 24)
-        close_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {c['text_secondary']}; border: none; border-radius: 6px; font-size: 18px; }}
-            QPushButton:hover {{ background: {c['hover']}; color: {c['text']}; }}
-        """)
+        close_btn = CloseButton(size=24)
         close_btn.clicked.connect(self.close)
         hb_layout.addWidget(close_btn)
         header_bar.mousePressEvent = self._title_mouse_press
@@ -1829,13 +1808,7 @@ class AIGenerateWindow(QWidget):
         hb_layout.addWidget(back_btn)
         hb_layout.addStretch()
 
-        close_btn = QPushButton("\u2715")
-        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        close_btn.setFixedSize(24, 24)
-        close_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {c['text_secondary']}; border: none; border-radius: 6px; font-size: 18px; }}
-            QPushButton:hover {{ background: {c['hover']}; color: {c['text']}; }}
-        """)
+        close_btn = CloseButton(size=24)
         close_btn.clicked.connect(self.close)
         hb_layout.addWidget(close_btn)
         header_bar.mousePressEvent = self._title_mouse_press

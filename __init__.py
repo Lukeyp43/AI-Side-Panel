@@ -294,11 +294,6 @@ def on_webview_did_receive_js_message(handled, message, context):
             from aqt.utils import tooltip
             tooltip("No internet connection. Check your connection and try again.", period=3000)
             return (True, None)
-        from .analytics import is_user_logged_in
-        if not is_user_logged_in():
-            from .ai_create import show_login_modal
-            show_login_modal()
-            return (True, None)
         from .ai_generate import show_ai_generate_dialog
         show_ai_generate_dialog()
         return (True, None)
@@ -402,6 +397,11 @@ def handle_inline_explain(selected_text):
 
     from .analytics import track_explain
     track_explain()
+
+    # Arm the login modal safety gate — user highlighted text and clicked
+    # Explain, which submits a real query to OE.
+    from .ai_create import mark_user_query
+    mark_user_query()
 
     from .review import show_review_modal_if_eligible
     show_review_modal_if_eligible()

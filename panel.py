@@ -105,16 +105,28 @@ def get_persistent_profile():
             except:
                 pass
 
-        # Set explicit storage paths to ensure persistence
+        # Set explicit storage paths to ensure persistence.
+        # IMPORTANT: storage MUST live OUTSIDE the addon folder entirely.
+        # On Windows, Qt WebEngine opens cache files WITHOUT
+        # FILE_SHARE_DELETE, which prevents both delete AND rename on the
+        # containing directory. That means even the `user_files/` approach
+        # (which relies on os.rename) fails on Windows during addon updates.
+        # Using Anki's profile folder ensures updates never touch our
+        # webengine data — no file locks can interfere.
         try:
-            addon_dir = os.path.dirname(os.path.abspath(__file__))
-            storage_path = os.path.join(addon_dir, "webengine_data")
+            try:
+                # Anki's profile folder persists across addon updates.
+                profile_folder = mw.pm.profileFolder()
+                storage_path = os.path.join(profile_folder, "addon_data", "anki_copilot", "webengine")
+            except Exception:
+                # Fallback: user home dir
+                storage_path = os.path.join(os.path.expanduser("~"), ".anki_copilot", "webengine")
+
             os.makedirs(storage_path, exist_ok=True)
 
-            # Set persistent storage path for cookies and other data
             _persistent_profile.setPersistentStoragePath(storage_path)
             _persistent_profile.setCachePath(os.path.join(storage_path, "cache"))
-        except:
+        except Exception:
             # If setting custom paths fails, continue with default paths
             pass
 

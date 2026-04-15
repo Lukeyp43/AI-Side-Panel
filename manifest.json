@@ -1,6 +1,6 @@
 {
-    "package": "the_ai_panel",
+    "package": "anki_copilot",
     "name": "Anki Copilot",
     "mod": 1766692710,
-    "conflicts": []
+    "conflicts": ["the_ai_panel"]
 }
