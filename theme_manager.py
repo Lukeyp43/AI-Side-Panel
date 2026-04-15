@@ -31,7 +31,18 @@ class CloseButton(QPushButton):
         palette = ThemeManager.get_palette()
         self._color = QColor(color or palette['text_secondary'])
         self._hover_color = QColor(hover_color or palette['text'])
-        self._hover_bg = QColor(hover_bg or palette['hover'])
+
+        # NOTE: palette['hover'] is a CSS rgba(...) string that QColor cannot
+        # parse — passing it to QColor() silently produces OPAQUE black, which
+        # covers the whole button on hover. Build the hover fill from explicit
+        # integer RGBA so it stays subtly translucent on both themes.
+        if hover_bg is not None:
+            self._hover_bg = QColor(hover_bg) if isinstance(hover_bg, str) else hover_bg
+        elif ThemeManager.is_night_mode():
+            self._hover_bg = QColor(255, 255, 255, 31)  # ~12% white
+        else:
+            self._hover_bg = QColor(0, 0, 0, 20)        # ~8% black
+
         self._hover = False
 
         radius = max(4, size // 4)
