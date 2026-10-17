@@ -453,9 +453,13 @@ class OpenEvidencePanel(QWidget):
     def on_page_load_finished(self, ok):
         """Called when page HTML is loaded - check if fully ready"""
         if not ok:
-            # Load failed, hide overlay anyway
+            # Load failed (network error, or an HTTP error status such as
+            # OpenEvidence's bot-check/captcha page). Show the web view anyway
+            # so the user sees the error or challenge page instead of a blank
+            # panel. Once it's resolved, the next load runs the normal ready check.
             if hasattr(self, 'loading_overlay'):
                 self.loading_overlay.hide()
+            self.web.show()
             return
 
         # Add a small delay before first JavaScript call to ensure profile is initialized
