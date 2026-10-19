@@ -529,6 +529,23 @@ def handle_inline_explain(selected_text):
                 return;
             }
 
+            // OpenEvidence served its DataDome bot check instead of the app —
+            // no answer will ever come, so stop now and let the user verify
+            if (document.querySelector('iframe[src*="captcha-delivery.com"]')) {
+                clearInterval(pollInterval);
+                window.ankiInlineResult = 'NEEDS_VERIFICATION';
+                return;
+            }
+
+            // Signed-out users get an inline "You do not have permission to
+            // perform this action." alert instead of an answer
+            var permAlert = document.querySelector('.MuiAlert-root[role="alert"]');
+            if (permAlert && /do not have permission/i.test(permAlert.textContent || '')) {
+                clearInterval(pollInterval);
+                window.ankiInlineResult = 'NEEDS_LOGIN';
+                return;
+            }
+
             // Check for out-of-scope warning
             var warning = document.querySelector('.MuiAlert-standardWarning, .MuiAlert-colorWarning');
             if (warning && warning.textContent.indexOf('outside the scope') !== -1) {
@@ -587,9 +604,8 @@ def handle_inline_explain(selected_text):
             _py_poll_count[0] += 1
             if _py_poll_count[0] > 70:  # 35 seconds max
                 _py_timer.stop()
-                # Dismiss the explain bubble on timeout
-                if mw.reviewer and hasattr(mw.reviewer, 'web') and mw.reviewer.web:
-                    mw.reviewer.web.eval("if(window.ankiDismissExplain) window.ankiDismissExplain();")
+                # Tell the user it failed instead of silently dismissing the bubble
+                _send_to_reviewer('ERROR_TIMEOUT', True)
                 _cleanup_panel()
                 return
 
@@ -613,6 +629,17 @@ def handle_inline_explain(selected_text):
                         mw.reviewer.web.eval("if(window.ankiDismissExplain) window.ankiDismissExplain();")
                     from .ai_create import show_login_modal
                     show_login_modal()
+                    return
+                if final == 'NEEDS_VERIFICATION':
+                    # Make sure the check page is visible (not hidden behind the
+                    # loading overlay) when the user clicks "Continue in chat"
+                    p = dock_widget.widget() if dock_widget else None
+                    if p and hasattr(p, 'web'):
+                        if hasattr(p, 'loading_overlay'):
+                            p.loading_overlay.hide()
+                        p.web.show()
+                    _send_to_reviewer(final, True)
+                    _cleanup_panel(clear_chat=False)
                     return
                 _send_to_reviewer(final, True)
                 _cleanup_panel(clear_chat=False)

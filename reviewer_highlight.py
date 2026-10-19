@@ -331,10 +331,12 @@ HIGHLIGHT_BUBBLE_JS = """
 
     // Streaming callback — streams text as it arrives
     window.ankiStreamExplainText = function(text, isDone) {
-        if (text === 'ERROR_TIMEOUT' || text === 'OUT_OF_SCOPE') {
+        if (text === 'ERROR_TIMEOUT' || text === 'OUT_OF_SCOPE' || text === 'NEEDS_VERIFICATION') {
             var msg = text === 'OUT_OF_SCOPE'
                 ? 'This doesn\\'t appear to be a medical topic. Try highlighting a medical term.'
-                : 'Couldn\\'t load explanation.';
+                : text === 'NEEDS_VERIFICATION'
+                ? 'OpenEvidence wants a quick security check first. Click "Continue in chat" to complete it, then try again.'
+                : 'Couldn\\'t load explanation. Click "Continue in chat" to see what OpenEvidence is showing.';
             renderTooltipState(msg, false);
             return;
         }
