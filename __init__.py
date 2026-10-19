@@ -537,6 +537,15 @@ def handle_inline_explain(selected_text):
                 return;
             }
 
+            // Signed-out users get an inline "You do not have permission to
+            // perform this action." alert instead of an answer
+            var permAlert = document.querySelector('.MuiAlert-root[role="alert"]');
+            if (permAlert && /do not have permission/i.test(permAlert.textContent || '')) {
+                clearInterval(pollInterval);
+                window.ankiInlineResult = 'NEEDS_LOGIN';
+                return;
+            }
+
             // Check for out-of-scope warning
             var warning = document.querySelector('.MuiAlert-standardWarning, .MuiAlert-colorWarning');
             if (warning && warning.textContent.indexOf('outside the scope') !== -1) {
